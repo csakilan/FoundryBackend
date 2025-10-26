@@ -1,0 +1,29 @@
+{
+  "nodes": [
+    {
+      "id": "rds_instance_1",
+      "type": "RDS",
+      "position": {
+        "x": 200,
+        "y": 100
+      },
+      "data": {
+        "label": "RDS",
+        "dbName": "mydatabase",
+        "engine": "postgres",
+        "masterUsername": "dbadmin",
+        "masterUserPassword": "MySecurePassword123!"
+      },
+      "measured": {
+        "width": 40,
+        "height": 40
+      }
+    }
+  ],
+  "edges": [],
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  }
+}

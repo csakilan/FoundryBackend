@@ -1,0 +1,393 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Foundry v1 - Single stack for EC2/S3/RDS/DynamoDB",
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "Networking"
+          },
+          "Parameters": [
+            "SubnetId",
+            "SecurityGroupId",
+            "DBSubnetGroupName"
+          ]
+        }
+      ],
+      "ParameterLabels": {
+        "DBSubnetGroupName": {
+          "default": "DB Subnet Group"
+        },
+        "SecurityGroupId": {
+          "default": "Instance Security Group"
+        },
+        "SubnetId": {
+          "default": "Target Subnet"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "DynamoDBdynamodbtable1Arn": {
+      "Description": "ARN of the DynamoDB table",
+      "Value": {
+        "Fn::GetAtt": [
+          "DynamoDBdynamodbtable1",
+          "Arn"
+        ]
+      }
+    },
+    "DynamoDBdynamodbtable1Name": {
+      "Description": "Name of the DynamoDB table",
+      "Value": {
+        "Ref": "DynamoDBdynamodbtable1"
+      }
+    },
+    "EC2ec2instance1Id": {
+      "Value": {
+        "Ref": "EC2ec2instance1"
+      }
+    },
+    "EC2ec2instance1NameTag": {
+      "Value": "full-stack-server"
+    },
+    "EC2ec2instance1PrivateIp": {
+      "Value": {
+        "Fn::GetAtt": [
+          "EC2ec2instance1",
+          "PrivateIp"
+        ]
+      }
+    },
+    "EC2ec2instance1PublicIp": {
+      "Value": {
+        "Fn::GetAtt": [
+          "EC2ec2instance1",
+          "PublicIp"
+        ]
+      }
+    },
+    "RDSrdsinstance1Arn": {
+      "Description": "ARN of foundry-test-appdb",
+      "Value": {
+        "Fn::Sub": "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${RDSrdsinstance1}"
+      }
+    },
+    "RDSrdsinstance1Endpoint": {
+      "Description": "Connection endpoint for foundry-test-appdb",
+      "Value": {
+        "Fn::GetAtt": [
+          "RDSrdsinstance1",
+          "Endpoint.Address"
+        ]
+      }
+    },
+    "RDSrdsinstance1InstanceId": {
+      "Description": "DB Instance Identifier",
+      "Value": {
+        "Ref": "RDSrdsinstance1"
+      }
+    },
+    "RDSrdsinstance1Port": {
+      "Description": "Port number for foundry-test-appdb",
+      "Value": {
+        "Fn::GetAtt": [
+          "RDSrdsinstance1",
+          "Endpoint.Port"
+        ]
+      }
+    },
+    "S3s3bucket1Arn": {
+      "Description": "ARN of the S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3s3bucket1",
+          "Arn"
+        ]
+      }
+    },
+    "S3s3bucket1DomainName": {
+      "Description": "Domain name of the S3 bucket",
+      "Value": {
+        "Fn::GetAtt": [
+          "S3s3bucket1",
+          "DomainName"
+        ]
+      }
+    },
+    "S3s3bucket1Name": {
+      "Description": "Name of the S3 bucket",
+      "Value": {
+        "Ref": "S3s3bucket1"
+      }
+    }
+  },
+  "Parameters": {
+    "DBSubnetGroupName": {
+      "Description": "DB Subnet Group for RDS instances (must span at least 2 AZs)",
+      "Type": "String"
+    },
+    "SecurityGroupId": {
+      "Description": "Security group",
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "SubnetId": {
+      "Description": "Target subnet",
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "VpcId": {
+      "Description": "(Reserved for future use)",
+      "Type": "AWS::EC2::VPC::Id"
+    }
+  },
+  "Resources": {
+    "DynamoDBdynamodbtable1": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "sessionId",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "DeletionProtectionEnabled": false,
+        "KeySchema": [
+          {
+            "AttributeName": "sessionId",
+            "KeyType": "HASH"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        },
+        "SSESpecification": {
+          "SSEEnabled": true
+        },
+        "TableName": "foundry-test-sessions",
+        "Tags": [
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Name",
+            "Value": "foundry-test-sessions"
+          }
+        ]
+      },
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "EC2ec2instance1": {
+      "Properties": {
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "DeleteOnTermination": true,
+              "VolumeSize": 20,
+              "VolumeType": "gp3"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "EC2ec2instance1RoleInstanceProfile"
+        },
+        "ImageId": "{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}",
+        "InstanceType": "t3.micro",
+        "SecurityGroupIds": [
+          {
+            "Ref": "SecurityGroupId"
+          }
+        ],
+        "SubnetId": {
+          "Ref": "SubnetId"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "full-stack-server"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": "#!/bin/bash\n# Auto-generated environment variables for service connections\nexport S3_BUCKET_NAME=\"<troposphere.Ref object at 0x1091a8eb0>\"\necho \"export S3_BUCKET_NAME=\\\"<troposphere.Ref object at 0x1091a8eb0>\\\"\" >> /etc/environment\nexport DYNAMODB_TABLE_NAME=\"<troposphere.Ref object at 0x1038bf6e0>\"\necho \"export DYNAMODB_TABLE_NAME=\\\"<troposphere.Ref object at 0x1038bf6e0>\\\"\" >> /etc/environment\nexport DB_HOST=\"<troposphere.GetAtt object at 0x108efbc70>\"\necho \"export DB_HOST=\\\"<troposphere.GetAtt object at 0x108efbc70>\\\"\" >> /etc/environment\nexport DB_PORT=\"<troposphere.GetAtt object at 0x109083b90>\"\necho \"export DB_PORT=\\\"<troposphere.GetAtt object at 0x109083b90>\\\"\" >> /etc/environment\nexport DB_NAME=\"appdb\"\necho \"export DB_NAME=\\\"appdb\\\"\" >> /etc/environment\nexport DB_USER=\"dbadmin\"\necho \"export DB_USER=\\\"dbadmin\\\"\" >> /etc/environment\nexport DB_PASSWORD=\"SecurePass123!\"\necho \"export DB_PASSWORD=\\\"SecurePass123!\\\"\" >> /etc/environment\nexport DB_ENGINE=\"postgres\"\necho \"export DB_ENGINE=\\\"postgres\\\"\" >> /etc/environment\n\n# User-provided UserData\n\n"
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance"
+    },
+    "EC2ec2instance1Role": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:ListBucket"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "S3s3bucket1",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::Sub": [
+                        "${BucketArn}/*",
+                        {
+                          "BucketArn": {
+                            "Fn::GetAtt": [
+                              "S3s3bucket1",
+                              "Arn"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "S3AccessPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "DynamoDBdynamodbtable1",
+                        "Arn"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "DynamoDBAccessPolicy"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "EC2ec2instance1Role"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "EC2ec2instance1RoleInstanceProfile": {
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "EC2ec2instance1Role"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::InstanceProfile"
+    },
+    "RDSrdsinstance1": {
+      "Properties": {
+        "AllocatedStorage": 20,
+        "BackupRetentionPeriod": 7,
+        "DBInstanceClass": "db.t4g.micro",
+        "DBInstanceIdentifier": "foundry-test-appdb",
+        "DBName": "appdb",
+        "DBSubnetGroupName": {
+          "Ref": "DBSubnetGroupName"
+        },
+        "DeletionProtection": false,
+        "Engine": "postgres",
+        "MasterUserPassword": "SecurePass123!",
+        "MasterUsername": "dbadmin",
+        "MultiAZ": false,
+        "PubliclyAccessible": false,
+        "StorageEncrypted": true,
+        "StorageType": "gp3",
+        "Tags": [
+          {
+            "Key": "Engine",
+            "Value": "postgres"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Name",
+            "Value": "foundry-test-appdb"
+          }
+        ],
+        "VPCSecurityGroups": [
+          {
+            "Ref": "SecurityGroupId"
+          }
+        ]
+      },
+      "Type": "AWS::RDS::DBInstance"
+    },
+    "S3s3bucket1": {
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "BucketName": "s35cb2de7c-app-storage",
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        }
+      },
+      "Type": "AWS::S3::Bucket"
+    }
+  }
+}
