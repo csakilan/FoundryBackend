@@ -2,6 +2,7 @@
 from typing import Dict, Any
 from troposphere import Template, Ref, Tags, Output, GetAtt, Sub
 import troposphere.rds as rds
+import uuid
 
 def add_rds_instance(
     t: Template,
@@ -9,7 +10,7 @@ def add_rds_instance(
     subnet_group_param,
     sg_param,
     *,
-    logical_id: str = "RDSInstance",
+    logical_id: str = None,
     build_id: str = "default",
 ) -> rds.DBInstance:
     """
@@ -24,7 +25,7 @@ def add_rds_instance(
         node: Node dictionary from ReactFlow canvas
         subnet_group_param: Parameter reference for DB subnet group
         sg_param: Parameter reference for VPC security group
-        logical_id: CloudFormation logical resource ID
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
         build_id: Build ID to prefix the database instance identifier
     
     Returns:
@@ -32,8 +33,18 @@ def add_rds_instance(
     """
     data = node["data"]
     
-    # Auto-generate dbInstanceIdentifier from build_id and user's dbName
-    db_instance_identifier = f"{build_id}-{data['dbName']}"
+    # Generate unique instance identifier: <build_id>-<unique_number>-<user_dbname>
+    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    user_db_name = data['dbName'].replace(" ", "").replace("_", "")  # Sanitize user name
+    db_instance_identifier = f"{build_id}-{unique_number}-{user_db_name}"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        # CloudFormation logical IDs can't have hyphens, use CamelCase
+        logical_id = f"RDS{build_id.replace('-', '').title()}{unique_number}{user_db_name}"
+    
+    print(f"  → Generated unique RDS instance identifier: {db_instance_identifier}")
+    print(f"  → Generated logical ID: {logical_id}")
     
     # Build properties with hardcoded defaults
     props: Dict[str, Any] = dict(
@@ -69,8 +80,10 @@ def add_rds_instance(
         # Tags for resource management
         Tags=Tags(
             Name=db_instance_identifier,
+            OriginalName=data['dbName'],
             ManagedBy="CloudFormation",
             Engine=data["engine"],
+            BuildId=build_id,
         ),
     )
     
@@ -100,8 +113,13 @@ def add_rds_instance(
         ),
         Output(
             f"{logical_id}InstanceId",
-            Description=f"DB Instance Identifier",
+            Description=f"Generated DB Instance Identifier",
             Value=Ref(instance)
+        ),
+        Output(
+            f"{logical_id}OriginalName",
+            Description=f"User's original database name",
+            Value=data['dbName']
         ),
     ])
     

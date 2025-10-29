@@ -2,6 +2,7 @@
 from typing import Dict, Any, Optional
 from troposphere import Template, Ref, Base64, Sub, Tags, Output, GetAtt
 import troposphere.ec2 as ec2
+import uuid
 
 # Mapping of friendly image names to AWS SSM Parameter Store paths
 # These SSM parameters are maintained by AWS and automatically point to the latest AMI
@@ -46,9 +47,10 @@ def add_ec2_instance(
     subnet_param,
     sg_param,
     *,
-    logical_id: str = "EC2Instance",
+    logical_id: str = None,
     instance_profile: Optional[Any] = None,
     environment_variables: Optional[Dict[str, str]] = None,
+    build_id: str = "default",
 ) -> ec2.Instance:
     """
     Add an AWS::EC2::Instance to the given Template.
@@ -64,14 +66,29 @@ def add_ec2_instance(
         node: Node dictionary from ReactFlow canvas
         subnet_param: Parameter reference for subnet
         sg_param: Parameter reference for security group
-        logical_id: CloudFormation logical resource ID
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
         instance_profile: Optional IAM instance profile for permissions
         environment_variables: Optional dict of env vars to inject into UserData
+        build_id: Build ID to prefix the instance name and logical ID
     
     Returns:
         The created EC2 Instance resource
     """
     data = node["data"]
+    
+    # Generate unique instance identifier: <build_id>-<unique_number>-<user_name>
+    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    user_name = data["name"].replace(" ", "").replace("_", "")  # Sanitize user name
+    instance_name = f"{build_id}-{unique_number}-{user_name}"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        # CloudFormation logical IDs can't have hyphens, use CamelCase
+        logical_id = f"EC2{build_id.replace('-', '').title()}{unique_number}{user_name}"
+    
+    print(f"  → Generated unique EC2 instance name: {instance_name}")
+    print(f"  → Generated logical ID: {logical_id}")
+    
     storage = data.get("storage") or {}
     user_data = data.get("userData", "")
 
@@ -119,7 +136,12 @@ def add_ec2_instance(
         SubnetId=Ref(subnet_param),
         SecurityGroupIds=[Ref(sg_param)],
         BlockDeviceMappings=block_devices,
-        Tags=Tags(Name=data["name"]),
+        Tags=Tags(
+            Name=instance_name,               # Use the generated unique name
+            OriginalName=data["name"],        # Keep original user-provided name as a separate tag
+            ManagedBy="CloudFormation",
+            BuildId=build_id,
+        ),
     )
     
     # Add IAM instance profile if provided
@@ -139,7 +161,8 @@ def add_ec2_instance(
         Output(f"{logical_id}Id", Value=Ref(instance)),
         Output(f"{logical_id}PrivateIp", Value=GetAtt(instance, "PrivateIp")),
         Output(f"{logical_id}PublicIp", Value=GetAtt(instance, "PublicIp")),  # blank if no public IP
-        Output(f"{logical_id}NameTag", Value=data["name"]),
+        Output(f"{logical_id}InstanceName", Value=instance_name),           # Generated unique name
+        Output(f"{logical_id}OriginalName", Value=data["name"]),            # User's original name
     ])
 
     return instance

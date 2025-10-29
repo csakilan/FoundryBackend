@@ -2,12 +2,13 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, Tags, Output, GetAtt
 import troposphere.dynamodb as dynamodb
+import uuid
 
 def add_dynamodb_table(
     t: Template,
     node: Dict[str, Any],
     *,
-    logical_id: str = "DynamoDBTable",
+    logical_id: str = None,
     build_id: str = "default",
 ) -> dynamodb.Table:
     """
@@ -20,7 +21,7 @@ def add_dynamodb_table(
     Args:
         t: Troposphere Template object
         node: Node dictionary from ReactFlow canvas
-        logical_id: CloudFormation logical resource ID
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
         build_id: Build ID to prefix the table name
     
     Returns:
@@ -28,8 +29,18 @@ def add_dynamodb_table(
     """
     data = node["data"]
     
-    # Auto-generate table name from build_id and user's tableName
-    table_name = f"{build_id}-{data['tableName']}"
+    # Generate unique table name: <build_id>-<unique_number>-<user_tablename>
+    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    user_table_name = data['tableName'].replace(" ", "").replace("_", "")  # Sanitize user name
+    table_name = f"{build_id}-{unique_number}-{user_table_name}"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        # CloudFormation logical IDs can't have hyphens, use CamelCase
+        logical_id = f"DynamoDB{build_id.replace('-', '').title()}{unique_number}{user_table_name}"
+    
+    print(f"  → Generated unique DynamoDB table name: {table_name}")
+    print(f"  → Generated logical ID: {logical_id}")
     
     # Build attribute definitions (required for key schema)
     attribute_definitions = [
@@ -90,7 +101,9 @@ def add_dynamodb_table(
         # Tags for resource management
         Tags=Tags(
             Name=table_name,
+            OriginalName=data['tableName'],
             ManagedBy="CloudFormation",
+            BuildId=build_id,
         ),
     )
     
@@ -107,8 +120,13 @@ def add_dynamodb_table(
     outputs: List[Output] = [
         Output(
             f"{logical_id}Name",
-            Description=f"Name of the DynamoDB table",
+            Description=f"Generated unique table name",
             Value=Ref(table)
+        ),
+        Output(
+            f"{logical_id}OriginalName",
+            Description=f"User's original table name",
+            Value=data['tableName']
         ),
         Output(
             f"{logical_id}Arn",

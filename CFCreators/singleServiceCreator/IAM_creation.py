@@ -2,12 +2,14 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, GetAtt, Sub
 import troposphere.iam as iam
+import uuid
 
 def create_ec2_s3_role(
     t: Template,
     s3_bucket_resource,
     *,
-    logical_id: str = "EC2S3Role"
+    logical_id: str = None,
+    build_id: str = "default"
 ) -> tuple:
     """
     Create IAM role and instance profile for EC2 to access S3.
@@ -15,15 +17,29 @@ def create_ec2_s3_role(
     Args:
         t: Troposphere Template object
         s3_bucket_resource: The S3 bucket resource object
-        logical_id: CloudFormation logical resource ID for the role
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
+        build_id: Build ID to prefix the role name
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
     
+    # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
+    unique_number = uuid.uuid4().hex[:6]
+    role_name = f"{build_id}-{unique_number}-ec2-s3-role"
+    policy_name = f"{build_id}-{unique_number}-s3-access-policy"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2S3Role"
+    
+    print(f"  → Generated unique IAM role name: {role_name}")
+    print(f"  → Generated logical ID: {logical_id}")
+    
     # Create IAM Role with EC2 assume role policy
     role = iam.Role(
         logical_id,
+        RoleName=role_name,  # Explicit role name for consistency
         AssumeRolePolicyDocument={
             "Version": "2012-10-17",
             "Statement": [{
@@ -34,7 +50,7 @@ def create_ec2_s3_role(
         },
         Policies=[
             iam.Policy(
-                PolicyName=f"{logical_id}S3AccessPolicy",
+                PolicyName=policy_name,  # Use generated unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -54,16 +70,22 @@ def create_ec2_s3_role(
             )
         ],
         Tags=[
-            {"Key": "Name", "Value": logical_id},
-            {"Key": "ManagedBy", "Value": "CloudFormation"}
+            {"Key": "Name", "Value": role_name},
+            {"Key": "OriginalPurpose", "Value": "ec2-s3-access"},
+            {"Key": "ManagedBy", "Value": "CloudFormation"},
+            {"Key": "BuildId", "Value": build_id}
         ]
     )
     
     t.add_resource(role)
     
     # Create Instance Profile (required bridge between IAM role and EC2)
+    instance_profile_name = f"{build_id}-{unique_number}-ec2-s3-profile"
+    instance_profile_logical_id = f"{logical_id}InstanceProfile"
+    
     instance_profile = iam.InstanceProfile(
-        f"{logical_id}InstanceProfile",
+        instance_profile_logical_id,
+        InstanceProfileName=instance_profile_name,  # Explicit instance profile name
         Roles=[Ref(role)]
     )
     
@@ -76,7 +98,8 @@ def create_ec2_dynamodb_role(
     t: Template,
     dynamodb_table_resource,
     *,
-    logical_id: str = "EC2DynamoDBRole"
+    logical_id: str = None,
+    build_id: str = "default"
 ) -> tuple:
     """
     Create IAM role and instance profile for EC2 to access DynamoDB.
@@ -84,15 +107,29 @@ def create_ec2_dynamodb_role(
     Args:
         t: Troposphere Template object
         dynamodb_table_resource: The DynamoDB table resource object
-        logical_id: CloudFormation logical resource ID for the role
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
+        build_id: Build ID to prefix the role name
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
     
+    # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
+    unique_number = uuid.uuid4().hex[:6]
+    role_name = f"{build_id}-{unique_number}-ec2-dynamodb-role"
+    policy_name = f"{build_id}-{unique_number}-dynamodb-access-policy"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2DynamoDBRole"
+    
+    print(f"  → Generated unique IAM role name: {role_name}")
+    print(f"  → Generated logical ID: {logical_id}")
+    
     # Create IAM Role with EC2 assume role policy
     role = iam.Role(
         logical_id,
+        RoleName=role_name,  # Explicit role name for consistency
         AssumeRolePolicyDocument={
             "Version": "2012-10-17",
             "Statement": [{
@@ -103,7 +140,7 @@ def create_ec2_dynamodb_role(
         },
         Policies=[
             iam.Policy(
-                PolicyName=f"{logical_id}DynamoDBAccessPolicy",
+                PolicyName=policy_name,  # Use generated unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -122,16 +159,22 @@ def create_ec2_dynamodb_role(
             )
         ],
         Tags=[
-            {"Key": "Name", "Value": logical_id},
-            {"Key": "ManagedBy", "Value": "CloudFormation"}
+            {"Key": "Name", "Value": role_name},
+            {"Key": "OriginalPurpose", "Value": "ec2-dynamodb-access"},
+            {"Key": "ManagedBy", "Value": "CloudFormation"},
+            {"Key": "BuildId", "Value": build_id}
         ]
     )
     
     t.add_resource(role)
     
     # Create Instance Profile
+    instance_profile_name = f"{build_id}-{unique_number}-ec2-dynamodb-profile"
+    instance_profile_logical_id = f"{logical_id}InstanceProfile"
+    
     instance_profile = iam.InstanceProfile(
-        f"{logical_id}InstanceProfile",
+        instance_profile_logical_id,
+        InstanceProfileName=instance_profile_name,  # Explicit instance profile name
         Roles=[Ref(role)]
     )
     
@@ -144,7 +187,8 @@ def create_ec2_multi_service_role(
     t: Template,
     services: Dict[str, Any],
     *,
-    logical_id: str = "EC2MultiServiceRole"
+    logical_id: str = None,
+    build_id: str = "default"
 ) -> tuple:
     """
     Create IAM role with policies for multiple services (S3, DynamoDB, RDS).
@@ -152,11 +196,23 @@ def create_ec2_multi_service_role(
     Args:
         t: Troposphere Template object
         services: Dict with keys like 's3_buckets', 'dynamodb_tables' containing resource objects
-        logical_id: CloudFormation logical resource ID for the role
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
+        build_id: Build ID to prefix the role name
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
+    
+    # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
+    unique_number = uuid.uuid4().hex[:6]
+    role_name = f"{build_id}-{unique_number}-ec2-multi-service-role"
+    
+    # Generate logical ID if not provided
+    if logical_id is None:
+        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2MultiServiceRole"
+    
+    print(f"  → Generated unique multi-service IAM role name: {role_name}")
+    print(f"  → Generated logical ID: {logical_id}")
     
     policies = []
     
@@ -170,7 +226,7 @@ def create_ec2_multi_service_role(
         
         policies.append(
             iam.Policy(
-                PolicyName="S3AccessPolicy",
+                PolicyName=f"{build_id}-{unique_number}-s3-access-policy",  # Unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -193,7 +249,7 @@ def create_ec2_multi_service_role(
         
         policies.append(
             iam.Policy(
-                PolicyName="DynamoDBAccessPolicy",
+                PolicyName=f"{build_id}-{unique_number}-dynamodb-access-policy",  # Unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -215,6 +271,7 @@ def create_ec2_multi_service_role(
     # Create IAM Role
     role = iam.Role(
         logical_id,
+        RoleName=role_name,  # Explicit role name for consistency
         AssumeRolePolicyDocument={
             "Version": "2012-10-17",
             "Statement": [{
@@ -225,16 +282,22 @@ def create_ec2_multi_service_role(
         },
         Policies=policies,
         Tags=[
-            {"Key": "Name", "Value": logical_id},
-            {"Key": "ManagedBy", "Value": "CloudFormation"}
+            {"Key": "Name", "Value": role_name},
+            {"Key": "OriginalPurpose", "Value": "ec2-multi-service-access"},
+            {"Key": "ManagedBy", "Value": "CloudFormation"},
+            {"Key": "BuildId", "Value": build_id}
         ]
     )
     
     t.add_resource(role)
     
     # Create Instance Profile
+    instance_profile_name = f"{build_id}-{unique_number}-ec2-multi-service-profile"
+    instance_profile_logical_id = f"{logical_id}InstanceProfile"
+    
     instance_profile = iam.InstanceProfile(
-        f"{logical_id}InstanceProfile",
+        instance_profile_logical_id,
+        InstanceProfileName=instance_profile_name,  # Explicit instance profile name
         Roles=[Ref(role)]
     )
     

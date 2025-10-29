@@ -5,63 +5,48 @@ import troposphere.s3 as s3
 import uuid
 
 
-def generate_unique_bucket_name(user_bucket_name: str = None, user_id: str = None, build_id: str = None) -> str:
+def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "default") -> str:
     """
     Generate a unique S3 bucket name following the pattern:
-    <userid>-<buildid>-<s3newid>-<userspecifiedbucketname>
+    <build_id>-<unique_number>-<user_bucket_name>
     
     Args:
         user_bucket_name: User-specified bucket name (optional)
-        user_id: User ID (to be supplied later, optional for now)
-        build_id: Build ID (to be supplied later, optional for now)
+        build_id: Build ID to prefix the bucket name
         
     Returns:
         Unique bucket name in lowercase
         
     Example:
-        user123-build456-s3789abc-my-app-storage
+        default-a1b2c3-my-app-storage
+        prod-123-d4e5f6-user-uploads
         
     Note:
-        - If user_id or build_id not provided, they will be omitted
-        - s3newid is always generated using UUID to ensure uniqueness
-        - All parts are converted to lowercase and invalid characters removed
+        - All parts are converted to lowercase and sanitized for S3 requirements
+        - If no user_bucket_name provided, defaults to "bucket"
     """
-    parts = []
+    # Generate unique number (6 characters)
+    unique_number = uuid.uuid4().hex[:6]
     
-    # Add user_id if provided (placeholder for future)
-    if user_id:
-        parts.append(sanitize_bucket_name_part(user_id))
-    
-    # Add build_id if provided (placeholder for future)
-    if build_id:
-        parts.append(sanitize_bucket_name_part(build_id))
-    
-    # Always add unique S3 ID using UUID (shortened to 8 characters)
-    s3_unique_id = f"s3{uuid.uuid4().hex[:8]}"
-    parts.append(s3_unique_id)
-    
-    # Add user-specified bucket name if provided
+    # Sanitize and use user bucket name, or default to "bucket"
     if user_bucket_name:
-        parts.append(sanitize_bucket_name_part(user_bucket_name))
+        sanitized_user_name = sanitize_bucket_name_part(user_bucket_name)
+    else:
+        sanitized_user_name = "bucket"
     
-    # Join all parts with hyphens
-    bucket_name = "-".join(parts)
+    # Build bucket name: <build_id>-<unique_number>-<user_name>
+    bucket_name = f"{build_id}-{unique_number}-{sanitized_user_name}"
     
     # Ensure it meets S3 naming requirements
-    # - Must be lowercase
-    # - 3-63 characters
-    # - Only letters, numbers, and hyphens
-    # - Cannot start or end with hyphen
     bucket_name = bucket_name.lower()
-    bucket_name = bucket_name.strip('-')
     
     # Truncate if too long (max 63 chars)
     if len(bucket_name) > 63:
-        bucket_name = bucket_name[:63].rstrip('-')
-    
-    # If somehow empty or too short, add a default prefix
-    if len(bucket_name) < 3:
-        bucket_name = f"foundry-{s3_unique_id}"
+        # Keep build_id and unique_number, truncate user name
+        prefix = f"{build_id}-{unique_number}-"
+        max_user_name_length = 63 - len(prefix)
+        truncated_user_name = sanitized_user_name[:max_user_name_length]
+        bucket_name = f"{prefix}{truncated_user_name}"
     
     return bucket_name
 
@@ -101,16 +86,15 @@ def add_s3_bucket(
     t: Template,
     node: Dict[str, Any],
     *,
-    logical_id: str = "S3Bucket",
-    user_id: str = None,
-    build_id: str = None,
+    logical_id: str = None,
+    build_id: str = "default",
 ) -> s3.Bucket:
     """
     Add an AWS::S3::Bucket to the given Template.
     Expects node['data'] with: bucketName (optional).
     
     Generates unique bucket name using pattern:
-    <userid>-<buildid>-<s3newid>-<userspecifiedbucketname>
+    <build_id>-<unique_number>-<userspecifiedbucketname>
     
     All security settings are hardcoded:
     - Encryption: Always enabled (AES-256)
@@ -121,9 +105,8 @@ def add_s3_bucket(
     Args:
         t: CloudFormation Template object
         node: Node data from frontend JSON
-        logical_id: CloudFormation logical resource ID (default: "S3Bucket")
-        user_id: User ID for bucket naming (optional, to be supplied in future)
-        build_id: Build ID for bucket naming (optional, to be supplied in future)
+        logical_id: CloudFormation logical resource ID (auto-generated if None)
+        build_id: Build ID for bucket naming
         
     Returns:
         The created S3 Bucket resource
@@ -133,20 +116,33 @@ def add_s3_bucket(
     # Get user-specified bucket name (optional)
     user_bucket_name = data.get("bucketName")
     
-    # Generate unique bucket name
-    # For now, user_id and build_id are None (will be passed from frontend in the future)
+    # Generate unique bucket name using consistent pattern
     bucket_name = generate_unique_bucket_name(
         user_bucket_name=user_bucket_name,
-        user_id=user_id,
         build_id=build_id
     )
     
+    # Generate unique number for logical ID if not provided
+    if logical_id is None:
+        unique_number = uuid.uuid4().hex[:6]
+        sanitized_user_name = sanitize_bucket_name_part(user_bucket_name) if user_bucket_name else "Bucket"
+        logical_id = f"S3{build_id.replace('-', '').title()}{unique_number}{sanitized_user_name.title()}"
+    
     print(f"  → Generated unique S3 bucket name: {bucket_name}")
+    print(f"  → Generated logical ID: {logical_id}")
     
     # Build bucket properties
     props: Dict[str, Any] = dict(
         # Use the generated unique bucket name
         BucketName=bucket_name,
+        
+        # Tags for resource management
+        Tags=[
+            {"Key": "Name", "Value": bucket_name},
+            {"Key": "OriginalName", "Value": user_bucket_name or "bucket"},
+            {"Key": "ManagedBy", "Value": "CloudFormation"},
+            {"Key": "BuildId", "Value": build_id},
+        ],
         
         # Encryption configuration (always enabled)
         BucketEncryption=s3.BucketEncryption(
@@ -186,7 +182,12 @@ def add_s3_bucket(
         Output(
             f"{logical_id}Name",
             Value=Ref(bucket),
-            Description="Name of the S3 bucket"
+            Description="Generated unique bucket name"
+        ),
+        Output(
+            f"{logical_id}OriginalName",
+            Value=user_bucket_name or "bucket",
+            Description="User's original bucket name"
         ),
         Output(
             f"{logical_id}Arn",
