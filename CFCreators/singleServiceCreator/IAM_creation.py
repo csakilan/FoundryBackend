@@ -2,14 +2,14 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, GetAtt, Sub
 import troposphere.iam as iam
-import uuid
 
 def create_ec2_s3_role(
     t: Template,
     s3_bucket_resource,
     *,
     logical_id: str = None,
-    build_id: str = "default"
+    build_id: str = "default",
+    unique_id: str = None
 ) -> tuple:
     """
     Create IAM role and instance profile for EC2 to access S3.
@@ -19,13 +19,20 @@ def create_ec2_s3_role(
         s3_bucket_resource: The S3 bucket resource object
         logical_id: CloudFormation logical resource ID (auto-generated if None)
         build_id: Build ID to prefix the role name
+        unique_id: Unique identifier for stable naming (e.g., EC2 node ID)
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
     
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
-    unique_number = uuid.uuid4().hex[:6]
+    # Use unique_id if provided for stability, otherwise fallback to timestamp
+    if unique_id:
+        unique_number = unique_id[:6]
+    else:
+        import time
+        unique_number = str(int(time.time()))[-6:]
+    
     role_name = f"{build_id}-{unique_number}-ec2-s3-role"
     policy_name = f"{build_id}-{unique_number}-s3-access-policy"
     
@@ -99,7 +106,8 @@ def create_ec2_dynamodb_role(
     dynamodb_table_resource,
     *,
     logical_id: str = None,
-    build_id: str = "default"
+    build_id: str = "default",
+    unique_id: str = None
 ) -> tuple:
     """
     Create IAM role and instance profile for EC2 to access DynamoDB.
@@ -109,13 +117,20 @@ def create_ec2_dynamodb_role(
         dynamodb_table_resource: The DynamoDB table resource object
         logical_id: CloudFormation logical resource ID (auto-generated if None)
         build_id: Build ID to prefix the role name
+        unique_id: Unique identifier for stable naming (e.g., EC2 node ID)
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
     
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
-    unique_number = uuid.uuid4().hex[:6]
+    # Use unique_id if provided for stability, otherwise fallback to timestamp
+    if unique_id:
+        unique_number = unique_id[:6]
+    else:
+        import time
+        unique_number = str(int(time.time()))[-6:]
+    
     role_name = f"{build_id}-{unique_number}-ec2-dynamodb-role"
     policy_name = f"{build_id}-{unique_number}-dynamodb-access-policy"
     
@@ -188,7 +203,8 @@ def create_ec2_multi_service_role(
     services: Dict[str, Any],
     *,
     logical_id: str = None,
-    build_id: str = "default"
+    build_id: str = "default",
+    unique_id: str = None
 ) -> tuple:
     """
     Create IAM role with policies for multiple services (S3, DynamoDB, RDS).
@@ -198,13 +214,20 @@ def create_ec2_multi_service_role(
         services: Dict with keys like 's3_buckets', 'dynamodb_tables' containing resource objects
         logical_id: CloudFormation logical resource ID (auto-generated if None)
         build_id: Build ID to prefix the role name
+        unique_id: Unique identifier for stable naming (e.g., EC2 node ID)
     
     Returns:
         Tuple of (iam_role, instance_profile)
     """
     
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
-    unique_number = uuid.uuid4().hex[:6]
+    # Use unique_id if provided for stability, otherwise fallback to timestamp
+    if unique_id:
+        unique_number = unique_id[:6]
+    else:
+        import time
+        unique_number = str(int(time.time()))[-6:]
+    
     role_name = f"{build_id}-{unique_number}-ec2-multi-service-role"
     
     # Generate logical ID if not provided

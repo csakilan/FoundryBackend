@@ -2,7 +2,6 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, Tags, Output, GetAtt
 import troposphere.dynamodb as dynamodb
-import uuid
 
 def add_dynamodb_table(
     t: Template,
@@ -30,7 +29,8 @@ def add_dynamodb_table(
     data = node["data"]
     
     # Generate unique table name: <build_id>-<unique_number>-<user_tablename>
-    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    # Use node ID for stability across template generations
+    unique_number = node['id'][:6]  # First 6 characters of node ID
     user_table_name = data['tableName'].replace(" ", "").replace("_", "")  # Sanitize user name
     table_name = f"{build_id}-{unique_number}-{user_table_name}"
     

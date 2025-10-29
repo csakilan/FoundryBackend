@@ -178,7 +178,7 @@ def make_stack_template(normalized: dict) -> Template:
             
             # Create multi-service IAM role
             iam_role, instance_profile = create_ec2_multi_service_role(
-                t, services, logical_id=f"{logical_id}Role"
+                t, services, logical_id=f"{logical_id}Role", build_id=build_id, unique_id=node_id
             )
         
         # Add RDS connection info as environment variables (no IAM needed, uses credentials)

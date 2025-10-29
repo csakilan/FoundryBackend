@@ -2,7 +2,6 @@
 from typing import Dict, Any, Optional
 from troposphere import Template, Ref, Base64, Sub, Tags, Output, GetAtt
 import troposphere.ec2 as ec2
-import uuid
 
 # Mapping of friendly image names to AWS SSM Parameter Store paths
 # These SSM parameters are maintained by AWS and automatically point to the latest AMI
@@ -77,7 +76,8 @@ def add_ec2_instance(
     data = node["data"]
     
     # Generate unique instance identifier: <build_id>-<unique_number>-<user_name>
-    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    # Use node ID for stability across template generations
+    unique_number = node['id'][:6]  # First 6 characters of node ID
     user_name = data["name"].replace(" ", "").replace("_", "")  # Sanitize user name
     instance_name = f"{build_id}-{unique_number}-{user_name}"
     

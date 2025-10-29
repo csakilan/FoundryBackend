@@ -2,10 +2,9 @@
 from typing import Dict, Any
 from troposphere import Template, Ref, Output, GetAtt, Sub
 import troposphere.s3 as s3
-import uuid
 
 
-def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "default") -> str:
+def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "default", node_id: str = None) -> str:
     """
     Generate a unique S3 bucket name following the pattern:
     <build_id>-<unique_number>-<user_bucket_name>
@@ -13,6 +12,7 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
     Args:
         user_bucket_name: User-specified bucket name (optional)
         build_id: Build ID to prefix the bucket name
+        node_id: Node ID from canvas for stability (optional)
         
     Returns:
         Unique bucket name in lowercase
@@ -25,8 +25,13 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
         - All parts are converted to lowercase and sanitized for S3 requirements
         - If no user_bucket_name provided, defaults to "bucket"
     """
-    # Generate unique number (6 characters)
-    unique_number = uuid.uuid4().hex[:6]
+    # Generate unique number (6 characters) - use node ID if available for stability
+    if node_id:
+        unique_number = node_id[:6]
+    else:
+        # Fallback to timestamp-based for backwards compatibility
+        import time
+        unique_number = str(int(time.time()))[-6:]
     
     # Sanitize and use user bucket name, or default to "bucket"
     if user_bucket_name:
@@ -116,15 +121,16 @@ def add_s3_bucket(
     # Get user-specified bucket name (optional)
     user_bucket_name = data.get("bucketName")
     
-    # Generate unique bucket name using consistent pattern
+    # Generate unique bucket name using consistent pattern with node ID for stability
     bucket_name = generate_unique_bucket_name(
         user_bucket_name=user_bucket_name,
-        build_id=build_id
+        build_id=build_id,
+        node_id=node['id']  # Use node ID for stable bucket names across regenerations
     )
     
     # Generate unique number for logical ID if not provided
     if logical_id is None:
-        unique_number = uuid.uuid4().hex[:6]
+        unique_number = node['id'][:6]  # Use node ID for stability
         sanitized_user_name = sanitize_bucket_name_part(user_bucket_name) if user_bucket_name else "Bucket"
         logical_id = f"S3{build_id.replace('-', '').title()}{unique_number}{sanitized_user_name.title()}"
     

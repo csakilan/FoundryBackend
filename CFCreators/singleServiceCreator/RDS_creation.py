@@ -2,7 +2,6 @@
 from typing import Dict, Any
 from troposphere import Template, Ref, Tags, Output, GetAtt, Sub
 import troposphere.rds as rds
-import uuid
 
 def add_rds_instance(
     t: Template,
@@ -34,7 +33,8 @@ def add_rds_instance(
     data = node["data"]
     
     # Generate unique instance identifier: <build_id>-<unique_number>-<user_dbname>
-    unique_number = uuid.uuid4().hex[:6]  # 6-character unique identifier
+    # Use node ID for stability across template generations
+    unique_number = node['id'][:6]  # First 6 characters of node ID
     user_db_name = data['dbName'].replace(" ", "").replace("_", "")  # Sanitize user name
     db_instance_identifier = f"{build_id}-{unique_number}-{user_db_name}"
     
