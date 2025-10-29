@@ -7,6 +7,10 @@ from pathlib import Path
 
 router = APIRouter(prefix="/canvas")
 
+@router.get('/health')
+def get_health():
+    return "this shi working dawg"
+
 @router.post('/deploy')
 def deploy_initiate(canvas: dict):
     """
