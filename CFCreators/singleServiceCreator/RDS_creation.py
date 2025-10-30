@@ -34,14 +34,24 @@ def add_rds_instance(
     
     # Generate unique instance identifier: <build_id>-<unique_number>-<user_dbname>
     # Use node ID for stability across template generations
-    unique_number = node['id'][:6]  # First 6 characters of node ID
-    user_db_name = data['dbName'].replace(" ", "").replace("_", "")  # Sanitize user name
-    db_instance_identifier = f"{build_id}-{unique_number}-{user_db_name}"
+    # Sanitize to remove underscores and invalid characters
+    def sanitize_rds_identifier(name: str) -> str:
+        """Sanitize string for RDS identifier (only alphanumeric and hyphens)"""
+        sanitized = ''.join(c if c.isalnum() else '-' for c in name)
+        # Remove consecutive hyphens
+        while '--' in sanitized:
+            sanitized = sanitized.replace('--', '-')
+        return sanitized.strip('-')
+    
+    unique_number = sanitize_rds_identifier(node['id'][:6])  # First 6 characters of node ID
+    user_db_name = sanitize_rds_identifier(data['dbName'])  # Sanitize user name
+    build_id_sanitized = sanitize_rds_identifier(build_id)
+    db_instance_identifier = f"{build_id_sanitized}-{unique_number}-{user_db_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"RDS{build_id.replace('-', '').title()}{unique_number}{user_db_name}"
+        logical_id = f"RDS{build_id_sanitized.replace('-', '').title()}{unique_number.replace('-', '')}{user_db_name.replace('-', '')}"
     
     print(f"  → Generated unique RDS instance identifier: {db_instance_identifier}")
     print(f"  → Generated logical ID: {logical_id}")

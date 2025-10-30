@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from typing import Optional
 from CFCreators import CFCreator
 import json
 from pathlib import Path
@@ -10,18 +11,80 @@ router = APIRouter(prefix="/canvas")
 
 
 class DeployRequest(BaseModel):
-    canvas: dict
+    # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
+    canvas: Optional[dict] = None
+    nodes: Optional[list] = None
+    edges: Optional[list] = None
+    viewport: Optional[dict] = None
+    buildId: Optional[str] = None
+    
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
+    
+    class Config:
+        extra = 'allow'
+    
+    @field_validator('canvas', mode='before')
+    @classmethod
+    def build_canvas(cls, v, info):
+        """If canvas is not provided, build it from nodes/edges"""
+        # If canvas is already provided, use it
+        if v is not None:
+            return v
+        # Otherwise, check if we have nodes/edges at root level
+        # Note: At validation time, we have access to all field values via info.data
+        return None
+    
+    def get_canvas_data(self) -> dict:
+        """Get canvas data regardless of input format"""
+        if self.canvas is not None:
+            return self.canvas
+        
+        # Build from flat structure
+        canvas = {}
+        if self.nodes is not None:
+            canvas['nodes'] = self.nodes
+        if self.edges is not None:
+            canvas['edges'] = self.edges
+        if self.viewport is not None:
+            canvas['viewport'] = self.viewport
+        if self.buildId is not None:
+            canvas['buildId'] = self.buildId
+        
+        return canvas
 
 
 class UpdateRequest(BaseModel):
-    canvas: dict
+    # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
+    canvas: Optional[dict] = None
+    nodes: Optional[list] = None
+    edges: Optional[list] = None
+    viewport: Optional[dict] = None
+    
     build_id: int  # ID of the build to update
     stack_name: str  # CloudFormation stack name to update
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
     auto_execute: bool = False  # If True, automatically execute the change set
+    
+    class Config:
+        extra = 'allow'
+    
+    def get_canvas_data(self) -> dict:
+        """Get canvas data regardless of input format"""
+        if self.canvas is not None:
+            return self.canvas
+        
+        # Build from flat structure
+        canvas = {}
+        if self.nodes is not None:
+            canvas['nodes'] = self.nodes
+        if self.edges is not None:
+            canvas['edges'] = self.edges
+        if self.viewport is not None:
+            canvas['viewport'] = self.viewport
+        
+        return canvas
 
 
 @router.get('/health')
@@ -35,7 +98,8 @@ def deploy_initiate(request: DeployRequest):
     
     Args:
         request: DeployRequest containing:
-            - canvas: Frontend ReactFlow JSON
+            - canvas: Frontend ReactFlow JSON (wrapped format)
+              OR nodes/edges/viewport directly (flat format)
             - owner_id: User ID (default: 1)
             - region: AWS region (default: us-east-1)
         
@@ -47,9 +111,9 @@ def deploy_initiate(request: DeployRequest):
     print("=" * 80)
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
-    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
     
-    canvas_data = request.canvas
+    canvas_data = request.get_canvas_data()
+    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
     
     # Deploy to AWS using CFCreator
     try:
@@ -187,7 +251,9 @@ def deploy_update(request: UpdateRequest):
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
     print(f"Auto Execute: {request.auto_execute}")
-    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
+    
+    canvas_data = request.get_canvas_data()
+    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
     
     try:
         # Step 1: Get the old build from database
@@ -209,7 +275,7 @@ def deploy_update(request: UpdateRequest):
         # Step 2: Generate new CloudFormation template from new canvas
         print(f"\n[2/5] Generating new CloudFormation template...")
         from CFCreators.CFCreator import createGeneration
-        new_cf_template = createGeneration(request.canvas)
+        new_cf_template = createGeneration(canvas_data)
         new_template_json = new_cf_template.to_json()
         new_template_dict = json.loads(new_template_json)
         
@@ -225,7 +291,7 @@ def deploy_update(request: UpdateRequest):
         vpc_resources = deployer.get_default_vpc_resources()
         
         # Check if template has RDS and setup DB Subnet Group if needed
-        has_rds = any(node.get("type") == "RDS" for node in request.canvas.get("nodes", []))
+        has_rds = any(node.get("type") == "RDS" for node in canvas_data.get("nodes", []))
         if has_rds:
             db_subnet_group = deployer.get_or_create_db_subnet_group(vpc_resources['VpcId'])
             vpc_resources['DBSubnetGroupName'] = db_subnet_group
@@ -259,7 +325,7 @@ def deploy_update(request: UpdateRequest):
         print(f"\n[5/5] Updating database...")
         update_build_canvas_and_template(
             build_id=request.build_id,
-            canvas=request.canvas,
+            canvas=canvas_data,
             cf_template=new_template_dict
         )
         print(f"  ✓ Database updated")
