@@ -1,6 +1,6 @@
 # S3_creation.py
 from typing import Dict, Any
-from troposphere import Template, Ref, Output, GetAtt, Sub
+from troposphere import Template, Ref, Output, GetAtt, Sub, Tags
 import troposphere.s3 as s3
 
 
@@ -27,11 +27,15 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
     """
     # Generate unique number (6 characters) - use node ID if available for stability
     if node_id:
-        unique_number = node_id[:6]
+        # Sanitize node_id to remove underscores and invalid chars
+        unique_number = sanitize_bucket_name_part(node_id[:6])
     else:
         # Fallback to timestamp-based for backwards compatibility
         import time
         unique_number = str(int(time.time()))[-6:]
+    
+    # Sanitize build_id as well
+    build_id = sanitize_bucket_name_part(build_id)
     
     # Sanitize and use user bucket name, or default to "bucket"
     if user_bucket_name:
@@ -143,12 +147,12 @@ def add_s3_bucket(
         BucketName=bucket_name,
         
         # Tags for resource management
-        Tags=[
-            {"Key": "Name", "Value": bucket_name},
-            {"Key": "OriginalName", "Value": user_bucket_name or "bucket"},
-            {"Key": "ManagedBy", "Value": "CloudFormation"},
-            {"Key": "BuildId", "Value": build_id},
-        ],
+        Tags=Tags(
+            Name=bucket_name,
+            OriginalName=user_bucket_name or "bucket",
+            ManagedBy="CloudFormation",
+            BuildId=build_id,
+        ),
         
         # Encryption configuration (always enabled)
         BucketEncryption=s3.BucketEncryption(
