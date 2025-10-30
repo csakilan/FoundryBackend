@@ -79,6 +79,12 @@ def add_ec2_instance(
     # Use node ID for stability across template generations
     unique_number = node['id'][:6]  # First 6 characters of node ID
     user_name = data["name"].replace(" ", "").replace("_", "")  # Sanitize user name
+
+    
+    
+    
+    #THIS IS THE NAME
+    
     instance_name = f"{build_id}-{unique_number}-{user_name}"
     
     # Generate logical ID if not provided
