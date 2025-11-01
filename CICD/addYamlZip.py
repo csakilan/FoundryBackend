@@ -3,74 +3,6 @@ import tempfile
 import shutil
 import os
 
-#the templates only work if the repo has a frontend or backend folder 
-
-#whoever sees this when I make a zip file it adds it locally so someone like fix it so it deletes after use
-dummyTemplate = """
-version: 0.2
-
-phases:
-  install:
-    runtime-versions:
-      nodejs: 20
-    commands:
-      - cd $CODEBUILD_SRC_DIR/*/frontend
-      - npm ci
-      
-  build:
-    commands:
-      - npm run build
-      
-  post_build:
-    commands:
-      - echo "Build complete"
-      - du -sh .next/
-      - du -sh node_modules/
-
-artifacts:
-  files:
-    - '**/*'
-  exclude-paths:
-    - '*/frontend/.next/cache/**/*'
-    - '*/frontend/node_modules/.cache/**/*'
-"""
-
-
-appspecTemplate = """
-version: 0.0
-os: linux
-
-files:
-  - source: /
-    destination: /home/ec2-user/app
-    overwrite: true
-
-permissions:
-  - object: /home/ec2-user/app
-    pattern: "*.sh"
-    owner: ec2-user
-    group: ec2-user
-    mode: 755
-
-hooks:
-  BeforeInstall: 
-    - location: scripts/stop.sh
-      timeout: 300
-
-  AfterInstall: 
-    - location: scripts/install.sh
-      timeout: 300
-      runas: root
-    
- 
-      
-  ApplicationStart:
-    - location: scripts/start.sh
-      timeout: 300
-   
-"""
-
-
 fastapi_buildspec_template="""
 version: 0.2
 phases:
@@ -97,23 +29,23 @@ version: 0.0
 os: linux
 files:
   - source: /
-    destination: /home/ec2-user/app
+    destination: /home/ubuntu/app
     overwrite: true
 hooks:
-  BeforeInstall: 
+  ApplicationStop:
     - location: scripts/stop.sh
-      timeout: 300
+      timeout: 100
+      runas: root
+  
 
   AfterInstall: 
     - location: scripts/install.sh
-      timeout: 300
-      runas: root
-    
- 
-      
+      timeout: 100
+      runas: root      
   ApplicationStart:
     - location: scripts/start.sh
-      timeout: 300
+      timeout: 100
+      runas: root
 
 """
 

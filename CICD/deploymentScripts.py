@@ -3,36 +3,38 @@ import tempfile
 import shutil
 import os
 
-#bash scripts for next.js
+#bash scripts for fastapi
 stop_sh_template = """#!/bin/bash
-pkill -f "node.*next" || true
+pkill -f "uvicorn|gunicorn|fastapi" || true
+
 """
-#test tommrow 
-install_sh_template = """#!/bin/bash 
+
+install_sh_template = """
+#!/bin/bash
 set -e
-cd /home/ec2-user/app/frontend
+cd /home/ubuntu/app
 
-if ! command -v node &> /dev/null; then
-    sudo dnf install -y nodejs20
-fi
+sudo apt-get update -y
+sudo apt-get install -y python3-venv python3-pip
 
-echo "Reinstalling dependencies..."
-rm -rf node_modules
-npm install
+python3 -m venv .venv
+. .venv/bin/activate
 
-echo " Installation complete"
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install uvicorn
+
+
 """
 
 start_sh_template = """#!/bin/bash
-set -e
-cd /home/ec2-user/app/frontend
-nohup npm start > /var/log/nextjs.log 2>&1 &
+set -euo pipefail
+cd /home/ubuntu/app
+source .venv/bin/activate
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 > /var/log/fastapi.out 2>&1 &
+
+
 """
-
-
-#bash scripts for fastapi
-
-
 
 
 

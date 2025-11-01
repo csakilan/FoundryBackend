@@ -32,15 +32,33 @@ def codeDeploy(owner,repo,bucket_name,object_key):
 
 #6 + 7 = six sevennnnn
 
-        create_deployment_group = code_deploy.create_deployment_group(
+        
 
-            applicationName=f"efrain-grubs-my-next-app",        
-            deploymentGroupName=f"{repo}",            #makes deployment group on codedeploy   
-            serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
-            ec2TagFilters=[{'Key': 'Name','Value': 'third-cicd-test','Type': 'KEY_AND_VALUE'} ] #filters for ec2
+        # create_deployment_group = code_deploy.create_deployment_group(
+
+        #     applicationName=f"efrain-grubs-my-next-app",        
+        #     deploymentGroupName=f"{repo}",            #makes deployment group on codedeploy   
+        #     serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
+        #     ec2TagFilters=[{'Key': 'Name','Value': 'third-cicd-test','Type': 'KEY_AND_VALUE'} ] #filters for ec2
            
 
           
+        #     )
+
+        try: 
+            create_deployment_group = code_deploy.create_deployment_group(
+                applicationName=f"{owner}-{repo}",        
+                deploymentGroupName=f"{repo}",            #makes deployment group on codedeploy   
+                serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
+                ec2TagFilters=[{'Key': 'Name','Value': 'Fast API Server','Type': 'KEY_AND_VALUE'} ] #filters for ec2
+            )
+
+        except code_deploy.exceptions.DeploymentGroupAlreadyExistsException:
+            update_deployment_group = code_deploy.update_deployment_group( 
+                applicationName=f"{owner}-{repo}",
+                currentDeploymentGroupName=f"{repo}",
+                ec2TagFilters=[{'Key': 'Name','Value': 'Fast API Server','Type': 'KEY_AND_VALUE'} ]
+               
             )
         
 
