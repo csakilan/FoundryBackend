@@ -19,7 +19,7 @@ def trigger_codebuild(project_name, s3_bucket, s3_key,path,id): #in the future i
                 'location': 'foundry-artifacts-bucket',
                 'name': f'founryCICD-{id}',
                 'packaging': 'ZIP',
-                 
+
                
                
                }

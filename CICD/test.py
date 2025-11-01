@@ -2,7 +2,7 @@ import requests
 import boto3
 import os 
 from boto3.exceptions import S3UploadFailedError
-from addYamlZip import addBuildSpec, dummyTemplate, appspecTemplate,addAppSpec,fastapi_buildspec_template
+from addYamlZip import addBuildSpec, addAppSpec,fastapi_buildspec_template, fastapi_appspec_template
 from deploymentScripts import addStartScript,start_sh_template,stop_sh_template,addStopScript,addInstallScript,install_sh_template
 import time
 from trigger_codebuild import trigger_codebuild
@@ -32,7 +32,7 @@ if response.status_code == 200:
     path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True) #should be adding yaml file to the zip
 
     print("magical path for zip file",path)
-    addAppSpec(out_file, appspecTemplate, overWrite=True)
+    addAppSpec(out_file, fastapi_appspec_template, overWrite=True)
     addStartScript(out_file, start_sh_template, overWrite=True)
     addStopScript(out_file, stop_sh_template, overWrite=True)
     addInstallScript(out_file, install_sh_template, overWrite=True)
