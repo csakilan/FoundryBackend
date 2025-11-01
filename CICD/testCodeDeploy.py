@@ -5,24 +5,28 @@ def codeDeploy():
 
     try:
 
-        create_app = code_deploy.create_application(  #makes application on code deploy
-            applicationName="MyApp",
-            computePlatform="Server"
+        # create_app = code_deploy.create_application(  #makes application on code deploy
+        #     applicationName="MyApp",
+        #     computePlatform="Server"
+        #     )
+        try: 
+            create_deployment_group = code_deploy.create_deployment_group(
+                applicationName=f"MyApp",        
+                deploymentGroupName=f"MyDeploymentGroup",            #makes deployment group on codedeploy   
+                serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
+                ec2TagFilters=[{'Key': 'Name','Value': 'third-cicd-test','Type': 'KEY_AND_VALUE'} ] #filters for ec2
             )
-        
 
-        create_deployment_group = code_deploy.create_deployment_group(
-
-            applicationName="MyApp",
-            deploymentGroupName="MyDeploymentGroup",            #makes deployment group on codedeploy   
-            serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy",
-            ec2TagFilters=[{'Key': 'Name','Value': 'second-cicd','Type': 'KEY_AND_VALUE'} ]
-           
-
-          
+        except code_deploy.exceptions.DeploymentGroupAlreadyExistsException:
+            
+            update_deployment_group = code_deploy.update_deployment_group( 
+                applicationName=f"MyApp",
+                currentDeploymentGroupName=f"MyDeploymentGroup",
+                ec2TagFilters=[{'Key': 'Name','Value': 'third-cicd-test','Type': 'KEY_AND_VALUE'} ] 
+               
             )
-        
 
+     
         response = code_deploy.create_deployment(
             applicationName="MyApp",
             deploymentGroupName="MyDeploymentGroup",
