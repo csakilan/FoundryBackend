@@ -16,7 +16,7 @@
       "position": {"x": 100, "y": 150},
       "data": {
         "label": "RDS",
-        "dbName": "appdb22",
+        "dbName": "appdb5",
         "engine": "postgres",
         "masterUsername": "dbadmin",
         "masterUserPassword": "SecurePass123!"
