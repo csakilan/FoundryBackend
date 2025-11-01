@@ -5,13 +5,7 @@ def codeDeploy(owner,repo,bucket_name,object_key):
 
     try:
 
-        # create_app = code_deploy.create_application(  #makes application on code deploy
-        #     applicationName=f"{owner}-{repo}",
-        #     computePlatform="Server"
-        #     )             #not sure if were gonna use one application and have deployment groups or multiple applications with one deployment group
-        
-#also whoever is reading this, so once something deployed ec2  idk if we should delete the code deploy application 
-# and deployment group or just leave it there
+    
 
 #also we have to add logic to clear the buckets after deployment or something bc if we keep adding zips to the bucket it will get messy
 
@@ -32,18 +26,7 @@ def codeDeploy(owner,repo,bucket_name,object_key):
 
 #6 + 7 = six sevennnnn
 
-        
-
-        # create_deployment_group = code_deploy.create_deployment_group(
-
-        #     applicationName=f"efrain-grubs-my-next-app",        
-        #     deploymentGroupName=f"{repo}",            #makes deployment group on codedeploy   
-        #     serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
-        #     ec2TagFilters=[{'Key': 'Name','Value': 'third-cicd-test','Type': 'KEY_AND_VALUE'} ] #filters for ec2
-           
-
-          
-        #     )
+    
 
         try: 
             create_deployment_group = code_deploy.create_deployment_group(
