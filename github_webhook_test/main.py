@@ -10,7 +10,7 @@ from CICD.code_Deploy import codeDeploy
 from CICD.addYamlZip import addBuildSpec, addAppSpec,fastapi_buildspec_template, fastapi_appspec_template
 from CICD.deploymentScripts import addStartScript,start_sh_template,stop_sh_template,addStopScript,addInstallScript,install_sh_template
 from CICD.upload_s3 import upload_to_s3
-
+from github_webhook_test.add_webhook import create_github_webhook
 
 load_dotenv()
 
@@ -18,6 +18,19 @@ app = FastAPI()
 
 # for right now, we have to manually setup a webhook on github but will be able to automate this using an API call to github hooks within the user's repo
 # we will have to use a request payload for push events
+
+@app.post("/add_webhook")
+async def add_webhook(request: Request):
+    body = await request.json()
+    owner = body["owner"]
+    repo = body["repo"]
+    token = body["token"]
+    webhook_url = "https://overslack-stonily-allegra.ngrok-free.dev/github/webhook"
+    success, response_message = create_github_webhook(owner, repo, token, webhook_url)
+    if success:
+        return {"status": "success", "message": response_message}
+    else:
+        return {"status": "error", "message": response_message}
 
 @app.post("/github/webhook")
 async def github_webhook(request: Request):
