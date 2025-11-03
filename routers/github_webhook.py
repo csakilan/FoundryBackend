@@ -1,10 +1,10 @@
-# routers/github_webhook.py
-
 import os
 import hmac
 import hashlib
 from fastapi import APIRouter, Request, Header, HTTPException
 from dotenv import load_dotenv
+import time
+import requests
 
 # Import your existing CICD functions
 from CICD.trigger_codebuild import trigger_codebuild
@@ -12,67 +12,81 @@ from CICD.code_Deploy import codeDeploy
 from CICD.upload_s3 import upload_to_s3
 from CICD.addYamlZip import addBuildSpec, addAppSpec, fastapi_buildspec_template, fastapi_appspec_template
 from CICD.deploymentScripts import addStartScript, addStopScript, addInstallScript, start_sh_template, stop_sh_template, install_sh_template
+from CICD.add_webhook import create_github_webhook
 
 load_dotenv()  # Load environment variables
 
 router = APIRouter(prefix="/github")  # All routes here will start with /github
 
 
+@router.post("/add_webhook")
+async def add_webhook(request: Request):
+    """
+    Endpoint to create GitHub webhook using provided repo details
+    """
+    body = await request.json()
+    owner = body["owner"]
+    repo = body["repo"]
+    token = body["token"]
+    webhook_url = "https://overslack-stonily-allegra.ngrok-free.dev/github/webhook"  # Update with correct URL
+
+    success, response_message = create_github_webhook(owner, repo, token, webhook_url)
+    if success:
+        return {"status": "success", "message": response_message}
+    else:
+        return {"status": "error", "message": response_message}
+
+
 @router.post("/webhook")
-async def github_webhook(request: Request, x_hub_signature_256: str | None = Header(None)):
+async def github_webhook(request: Request):
     """
-    Receives GitHub push events and triggers redeploy
+    Test route — prints the payload when GitHub pushes code
     """
-
     body = await request.body()
-
-    # verify signature makes sure that
+    signature_header = request.headers.get("X-Hub-Signature-256", "")
     secret = os.getenv("GITHUB_WEBHOOK_SECRET", "").encode()
-    if secret and x_hub_signature_256:
+
+    # verify signature if secret exists
+    if secret and signature_header:
         digest = hmac.new(secret, body, hashlib.sha256).hexdigest()
-        expected_signature = f"sha256={digest}"
-        if not hmac.compare_digest(expected_signature, x_hub_signature_256):
-            raise HTTPException(status_code=401, detail="Invalid signature — not from GitHub")
+        expected = f"sha256={digest}"
+        if not hmac.compare_digest(expected, signature_header):
+            print("Invalid webhook signature")
+            return {"message": "Invalid signature"}
 
-    # 3️⃣ Parse payload
     payload = await request.json()
-    repo_url = payload["repository"]["html_url"]
-    branch = payload["ref"].split("/")[-1]
-    owner = repo_url.split("/")[-2]
-    repo_name = repo_url.split("/")[-1]
+    print("Webhook received!")
 
-    print(f"🔔 Push detected on {repo_url} [{branch}]")
+    repo_url = payload["repository"]["clone_url"]
 
-    # 4️⃣ Prepare S3 zip key and local zip filename
-    zip_url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball/{branch}"
-    out_file = f"{repo_name}-{branch}.zip"
-    s3_bucket = "foundry-codebuild-zip"
-    s3_key = f"{owner}/{out_file}"
+    owner = repo_url.split("/")[3]
+    repo = repo_url.split("/")[4].replace(".git", "")
+    ref = payload["ref"].split("/")[-1]
 
-    # 5️⃣ Download zip
-    import requests
+    zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}"
+    out_file = f"{repo}-{ref}.zip" 
+    S3_BUCKET_NAME = "foundry-codebuild-zip"
+    S3_KEY = f"{owner}/{out_file}"
+
     response = requests.get(zip_url, allow_redirects=True)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail=f"Failed to download repo zip: {response.status_code}")
-    with open(out_file, "wb") as f:
-        f.write(response.content)
+    if response.status_code == 200:
+        with open(out_file, "wb") as f:
+            f.write(response.content)
+        path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
+        addAppSpec(out_file, fastapi_appspec_template, overWrite=True)
+        addStopScript(out_file, stop_sh_template, overWrite=True)
+        addInstallScript(out_file, install_sh_template, overWrite=True)
+        addStartScript(out_file, start_sh_template, overWrite=True)
+    else:
+        print(f"Failed to download repo: {response.status_code}")
+        return {"message": "Download failed"}
 
-    # 6️⃣ Inject buildspec/appspec/scripts
-    addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
-    addAppSpec(out_file, fastapi_appspec_template, overWrite=True)
-    addStopScript(out_file, stop_sh_template, overWrite=True)
-    addInstallScript(out_file, install_sh_template, overWrite=True)
-    addStartScript(out_file, start_sh_template, overWrite=True)
+    upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
+    time.sleep(10)
 
-    # 7️⃣ Upload to S3
-    upload_to_s3(out_file, s3_bucket, s3_key)
-
-    # 8️⃣ Trigger CodeBuild
-    status = trigger_codebuild("foundryCICD", s3_bucket, s3_key, "buildspec.yml", f"{owner}-{repo_name}")
-
-    # 9️⃣ Trigger CodeDeploy if build succeeded
-    if status.get("build_status") == "SUCCEEDED":
-        codeDeploy(owner, repo_name, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo_name}")
-        print(f"✅ Redeploy triggered for {repo_url}")
-
-    return {"message": f"Redeploy triggered for {repo_url}:{branch}"}
+    build_status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY, path, f"{owner}-{repo}")
+    if build_status["build_status"] == "SUCCEEDED":
+        codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}")
+        return {"message": "Build and deploy completed successfully"}
+    else:
+        return {"message": "Build failed, skipping deploy"}

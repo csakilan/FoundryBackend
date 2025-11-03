@@ -16,8 +16,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# for right now, we have to manually setup a webhook on github but will be able to automate this using an API call to github hooks within the user's repo
-# we will have to use a request payload for push events
+# add webhook adds a webhook to the user's github. decide when to do this (when the user first uploads their repo probs)
 
 @app.post("/add_webhook")
 async def add_webhook(request: Request):
