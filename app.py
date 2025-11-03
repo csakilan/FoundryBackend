@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import canvas
+from routers.github_webhook import router as github_router
 
 
 
@@ -19,6 +20,4 @@ app.add_middleware(
 )
 
 app.include_router(canvas.router)
-
-
-
+app.include_router(github_router)
