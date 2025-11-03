@@ -525,6 +525,11 @@ async def get_repos(authorization: Optional[str] = Header(None)):
         for repo in repos
     ]
         return simplified
+    
+
+
+
+
 
 @router.post("/builds")
 async def cicd(Data: dict):
@@ -585,6 +590,10 @@ async def cicd(Data: dict):
 
 
 
+@router.post("/cost")
+def cost(): 
+
+    print("hello world")
 
 
 
