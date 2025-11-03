@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException,Header
 from typing import Optional
 import httpx
 import requests
+#cicd imports
 from CICD.addYamlZip import addAppSpec, addBuildSpec, fastapi_appspec_template,fastapi_buildspec_template
 from CICD.upload_s3 import upload_to_s3
 import time
@@ -16,6 +17,11 @@ from CICD.trigger_codebuild import trigger_codebuild
 from CICD.deploymentScripts import addStartScript,start_sh_template,stop_sh_template,addStopScript,addInstallScript,install_sh_template
 from CICD.code_Deploy import codeDeploy
 
+#settings imports 
+from settings.get_user import get_users
+from dotenv import load_dotenv
+import os
+import asyncpg,asyncio
 
 router = APIRouter(prefix="/canvas")
 
@@ -516,7 +522,6 @@ async def get_repos(authorization: Optional[str] = Header(None)):
         {
             "name": repo["name"],
             "html_url": repo["html_url"],
-            "zip_url": f"https://github.com/{token}/{repo['name']}//main.zip", 
             "owner": repo["owner"]["login"],
             "ref": "main",
 
@@ -533,14 +538,19 @@ async def get_repos(authorization: Optional[str] = Header(None)):
 
 @router.post("/builds")
 async def cicd(Data: dict):
-
+    print('route reached')
 
     url = Data.get("repo")
 
-    owner = url.split("/")[3]
-    repo = url.split("/")[4]
+
+    print("url",url)
+
+    owner = url.split("/")[1]
+    repo = url.split("/")[0]
 
     print(owner,repo)
+
+
     ref = "main"
 
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
@@ -602,10 +612,49 @@ async def cicd(Data: dict):
 
 
 
-@router.post("/cost")
-def cost(): 
+@router.get("/users")
+async def get_user_info():
+    load_dotenv()
 
-    print("hello world")
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
+    print("DATABASE_URL:", DATABASE_URL)
+
+    try: 
+        info = await asyncpg.connect(DATABASE_URL)
+
+
+        rows = await info.fetch("SELECT * FROM users;")
+
+        user_info = []
+        for row in rows:
+            user_info.append(row.get("email"))
+
+        
+        print("users:",user_info)
+
+
+        await info.close()
+
+
+
+
+        return user_info
+    
+
+    except Exception as e: 
+        print(f"Failed to connect to database: {e}")
+        return
+
+
+    
+
+
+
+    
+    
+    
+    
+   
 
 
