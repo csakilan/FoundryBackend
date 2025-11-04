@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+# Use override=True to ensure .env values take precedence over system environment
+load_dotenv(override=True)
 
 # RDS Connection Configuration
 DB_CONFIG = {
@@ -17,7 +18,8 @@ DB_CONFIG = {
     'port': int(os.getenv('RDS_PORT', 5432)),
     'database': os.getenv('RDS_DATABASE', 'postgres'),
     'user': os.getenv('RDS_USER', 'postgres'),
-    'password': os.getenv('RDS_PASSWORD')
+    'password': os.getenv('RDS_PASSWORD'),
+    'sslmode': 'require'  # RDS requires SSL encryption
 }
 
 

@@ -181,12 +181,12 @@ class CloudFormationDeployer:
             ]
             
             # Create the stack
-            # Note: CAPABILITY_IAM is required when template creates IAM resources
+            # Note: CAPABILITY_NAMED_IAM is required when template creates IAM resources with custom names
             response = self.cf_client.create_stack(
                 StackName=stack_name,
                 TemplateBody=template_body,
                 Parameters=cf_parameters,
-                Capabilities=['CAPABILITY_IAM'],  # Allow IAM role/policy creation
+                Capabilities=['CAPABILITY_NAMED_IAM'],  # Allow IAM role/policy creation with custom names
                 OnFailure='ROLLBACK'
             )
             
@@ -279,7 +279,7 @@ class CloudFormationDeployer:
                 StackName=stack_name,
                 TemplateBody=template_body,
                 Parameters=cf_parameters,
-                Capabilities=['CAPABILITY_IAM'],
+                Capabilities=['CAPABILITY_NAMED_IAM'],  # Allow IAM resources with custom names
                 ChangeSetName=change_set_name,
                 Description=f"Foundry update at {timestamp}"
             )

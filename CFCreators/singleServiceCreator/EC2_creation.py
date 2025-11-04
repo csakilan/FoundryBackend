@@ -13,6 +13,42 @@ IMAGE_NAME_TO_SSM = {
     # If macOS support is needed, user must provide a specific AMI ID from their dedicated host setup
 }
 
+
+def sanitize_ec2_name(name: str) -> str:
+    """
+    Sanitize a string for EC2 instance naming (used in Name tag).
+    
+    EC2 Name tags are more flexible than resource identifiers, but we sanitize
+    to keep consistency with other AWS resources.
+    
+    Args:
+        name: Raw name string
+        
+    Returns:
+        Sanitized name (alphanumeric, hyphens, underscores)
+    """
+    # Replace invalid characters (colons, spaces, etc.) with hyphens
+    valid_chars = []
+    for char in name:
+        if char.isalnum() or char in ['_', '-']:
+            valid_chars.append(char)
+        else:
+            valid_chars.append('-')
+    
+    # Join and remove consecutive hyphens
+    name = ''.join(valid_chars)
+    while '--' in name:
+        name = name.replace('--', '-')
+    
+    # Remove leading/trailing hyphens
+    name = name.strip('-')
+    
+    # Ensure it's not empty
+    if not name:
+        name = 'instance'
+    
+    return name
+
 def resolve_image_id(image_input: str) -> str:
     """
     Resolve image ID from either:
@@ -77,20 +113,16 @@ def add_ec2_instance(
     
     # Generate unique instance identifier: <build_id>-<unique_number>-<user_name>
     # Use node ID for stability across template generations
-    unique_number = node['id'][:6]  # First 6 characters of node ID
-    user_name = data["name"].replace(" ", "").replace("_", "")  # Sanitize user name
-
+    unique_number = sanitize_ec2_name(node['id'][:6])  # SANITIZE node_id portion!
+    user_name = sanitize_ec2_name(data["name"])  # Sanitize user name
+    sanitized_build_id = sanitize_ec2_name(build_id)  # Sanitize build_id
     
-    
-    
-    #THIS IS THE NAME
-    
-    instance_name = f"{build_id}-{unique_number}-{user_name}"
+    instance_name = f"{sanitized_build_id}-{unique_number}-{user_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"EC2{build_id.replace('-', '').title()}{unique_number}{user_name}"
+        logical_id = f"EC2{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}{user_name.replace('-', '').replace(':', '')}"
     
     print(f"  → Generated unique EC2 instance name: {instance_name}")
     print(f"  → Generated logical ID: {logical_id}")
