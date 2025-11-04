@@ -580,28 +580,16 @@ async def cicd(Data: dict):
             file.write(response.content)  #write the content to a file
         print(f"Downloaded {out_file} successfully.")
         path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
-
         addAppSpec(out_file,fastapi_appspec_template, overWrite=True)
-        
-      
         addStopScript(out_file, stop_sh_template, overWrite=True)
- 
         addInstallScript(out_file, install_sh_template, overWrite=True)
         addStartScript(out_file, start_sh_template, overWrite=True)
        
-    
-       
-
-        
     else: 
         print(f"Failed to download file: {response.status_code} - {response.text}")
 
-    # upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
     
     upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-
-
-
     time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
 
     status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")

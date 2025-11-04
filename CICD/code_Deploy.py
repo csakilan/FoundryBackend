@@ -1,53 +1,49 @@
 import boto3
 
-def codeDeploy(owner,repo,bucket_name,object_key):
+def codeDeploy(owner, repo, bucket_name, object_key):
+    """
+    Deploys the latest build to EC2 using CodeDeploy.
+    Automatically creates the application if it doesn't exist.
+    """
+
     code_deploy = boto3.client("codedeploy", region_name="us-east-1")
+    application_name = f"{owner}-{repo}"
+    deployment_group_name = repo
+    service_role_arn = "arn:aws:iam::575380174326:role/serviceRoleCodeDeploy"  # Update if needed
 
     try:
-
-    
-
-#also we have to add logic to clear the buckets after deployment or something bc if we keep adding zips to the bucket it will get messy
-
-#also we need to add overriding to the deployment group names as well so if you deploy the same project it shouldnt give an error
-#"code deployment name exist"
-
-#also this only works for next.js projects and there must be a frontend folder too for it too work
-#use the testing folders if yall want to experiment with it 
-#we can also create a new application so it doesnt have my name fixed "efrain-grubs-my-next-app"
-#for the cf docs it has to have an the iam policy "arn:aws:iam::575380174326:role/serviceRoleCodeDeploy" its so codedeploy can talk to ec2 instances
-
-#gotta add logic if something went wrong with upload to send to frontend
-
-#also gotta send the frontend a url too if sucessfull 
-
-
-
-
-#6 + 7 = six sevennnnn
-
-    
-
-        try: 
-            create_deployment_group = code_deploy.create_deployment_group(
-                applicationName=f"{owner}-{repo}",        
-                deploymentGroupName=f"{repo}",            #makes deployment group on codedeploy   
-                serviceRoleArn="arn:aws:iam::575380174326:role/serviceRoleCodeDeploy", #same thing here will be parameter once cf done
-                ec2TagFilters=[{'Key': 'Name','Value': 'Fast API Server','Type': 'KEY_AND_VALUE'} ] #filters for ec2
+        # Ensure application exists
+        try:
+            code_deploy.get_application(applicationName=application_name)
+            print(f"Application '{application_name}' exists.")
+        except code_deploy.exceptions.ApplicationDoesNotExistException:
+            code_deploy.create_application(
+                applicationName=application_name,
+                computePlatform="Server"
             )
+            print(f"Created CodeDeploy application '{application_name}'.")
 
+        # Create or update deployment group
+        try:
+            code_deploy.create_deployment_group(
+                applicationName=application_name,
+                deploymentGroupName=deployment_group_name,
+                serviceRoleArn=service_role_arn,
+                ec2TagFilters=[{'Key': 'Name', 'Value': 'Fast API Server', 'Type': 'KEY_AND_VALUE'}]
+            )
+            print(f"Created deployment group '{deployment_group_name}'.")
         except code_deploy.exceptions.DeploymentGroupAlreadyExistsException:
-            update_deployment_group = code_deploy.update_deployment_group( 
-                applicationName=f"{owner}-{repo}",
-                currentDeploymentGroupName=f"{repo}",
-                ec2TagFilters=[{'Key': 'Name','Value': 'Fast API Server','Type': 'KEY_AND_VALUE'} ]
-               
+            code_deploy.update_deployment_group(
+                applicationName=application_name,
+                currentDeploymentGroupName=deployment_group_name,
+                ec2TagFilters=[{'Key': 'Name', 'Value': 'Fast API Server', 'Type': 'KEY_AND_VALUE'}]
             )
-        
+            print(f"Updated deployment group '{deployment_group_name}'.")
 
+        # Start deployment
         response = code_deploy.create_deployment(
-            applicationName=f"{owner}-{repo}",
-            deploymentGroupName=repo,
+            applicationName=application_name,
+            deploymentGroupName=deployment_group_name,
             revision={
                 'revisionType': 'S3',
                 's3Location': {
@@ -58,12 +54,10 @@ def codeDeploy(owner,repo,bucket_name,object_key):
             },
             deploymentConfigName='CodeDeployDefault.AllAtOnce',
             description='Deploying latest build to EC2',
-             fileExistsBehavior='OVERWRITE'
+            fileExistsBehavior='OVERWRITE'
         )
 
         print("Deployment started:", response['deploymentId'])
 
     except Exception as e:
         print(f"Failed to trigger CodeDeploy: {e}")
-
-
