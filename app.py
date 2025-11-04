@@ -19,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(canvas.router)
+app.include_router(canvas.builds)
 
 
 

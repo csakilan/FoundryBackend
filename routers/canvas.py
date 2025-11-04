@@ -25,6 +25,8 @@ import asyncpg,asyncio
 
 router = APIRouter(prefix="/canvas")
 
+builds = APIRouter(prefix='/builds')
+
 
 class DeployRequest(BaseModel):
     # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
@@ -518,6 +520,8 @@ async def get_repos(authorization: Optional[str] = Header(None)):
 
         repos = response.json()
 
+        print(repos)
+
         simplified = [
         {
             "name": repo["name"],
@@ -531,8 +535,6 @@ async def get_repos(authorization: Optional[str] = Header(None)):
     ]
         return simplified
     
-
-
 
 
 
@@ -649,10 +651,33 @@ async def get_user_info():
 
     
 
+@builds.post('/')
+async def new_build(dict_data: dict): 
+
+    print("builds route reached") 
+
+    print("data",dict_data)
 
 
+    database_url = os.getenv("DATABASE_URL")
+
+    #left off here 
+
+    try: 
+
+        print("hi there")
+
+    except Exception as e: 
+
+        print("error",e)
+
     
-    
+
+
+    return {"message":"build created"}
+
+
+
     
     
    
