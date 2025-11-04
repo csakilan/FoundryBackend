@@ -1,9 +1,10 @@
 import requests
+import os
 
 def create_github_webhook(owner, repo, token, webhook_url):
   api_url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
   headers = {
-    "Authorization" : f"token {token}",
+    "Authorization" : f"Bearer {token}",
     "Accept" : "application/vnd.github+json"
   }
   payload = {
@@ -13,6 +14,7 @@ def create_github_webhook(owner, repo, token, webhook_url):
     "config": {
       "url" : webhook_url,
       "content_type" : "json",
+      "secret": os.getenv("GITHUB_WEBHOOK_SECRET"),
       "insecure_ssl" : "0"
     }
   }

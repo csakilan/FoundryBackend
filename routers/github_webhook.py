@@ -13,6 +13,7 @@ from CICD.upload_s3 import upload_to_s3
 from CICD.addYamlZip import addBuildSpec, addAppSpec, fastapi_buildspec_template, fastapi_appspec_template
 from CICD.deploymentScripts import addStartScript, addStopScript, addInstallScript, start_sh_template, stop_sh_template, install_sh_template
 from CICD.add_webhook import create_github_webhook
+from database import get_access_token_for_owner
 
 load_dotenv()  # Load environment variables
 
@@ -22,19 +23,38 @@ router = APIRouter(prefix="/github")  # All routes here will start with /github
 @router.post("/add_webhook")
 async def add_webhook(request: Request):
     """
-    Endpoint to create GitHub webhook using provided repo details
+    Endpoint to create GitHub webhook using provided repo details.
+    The user's OAuth token is retrieved from the database using the owner/username.
     """
     body = await request.json()
-    owner = body["owner"]
-    repo = body["repo"]
-    token = body["token"]
-    webhook_url = "https://overslack-stonily-allegra.ngrok-free.dev/github/webhook"  # Update with correct URL
+
+    try:
+        owner = body["owner"]  # The GitHub username used for the DB lookup
+        repo = body["repo"]
+    except KeyError as e:
+        # Handle cases where the request body is missing required fields
+        raise HTTPException(status_code=400, detail=f"Missing required field: {e.args[0]}")
+    
+    webhook_url = "https://overslack-stonily-allegra.ngrok-free.dev/github/webhook"
+
+    # 2. Retrieve the clean access token from the database
+    try:
+        # If the user or token is not found, get_access_token_for_owner 
+        # should raise HTTPException(404), which FastAPI handles automatically.
+        token = get_access_token_for_owner(owner)
+        
+    except HTTPException:
+        # Re-raise the exception (e.g., 404 Not Found from the database function)
+        raise
+    except Exception as e:
+        # Handle unexpected errors during DB connection/query
+        raise HTTPException(status_code=500, detail=f"Database retrieval error: {e}")
 
     success, response_message = create_github_webhook(owner, repo, token, webhook_url)
     if success:
         return {"status": "success", "message": response_message}
     else:
-        return {"status": "error", "message": response_message}
+        raise HTTPException(status_code=400, detail=f"GitHub API Error: Failed to create webhook. Response: {response_message}")
 
 
 @router.post("/webhook")
@@ -42,6 +62,14 @@ async def github_webhook(request: Request):
     """
     Test route — prints the payload when GitHub pushes code
     """
+
+    event_type = request.headers.get('X-GitHub-Event')
+
+    if event_type == 'ping':
+        print("Webhook ping received. Responding OK.")
+        # Return a 200 OK without processing the payload
+        return {"message": "pong"}
+    
     body = await request.body()
     signature_header = request.headers.get("X-Hub-Signature-256", "")
     secret = os.getenv("GITHUB_WEBHOOK_SECRET", "").encode()
