@@ -1,5 +1,6 @@
 # make_stack.py
 from troposphere import Template, Parameter, Ref
+from datetime import datetime
 from .singleServiceCreator import (
     EC2_creation, S3_creation, RDS_creation, DynamoDB_creation,
     create_ec2_s3_role, create_ec2_dynamodb_role, create_ec2_multi_service_role
@@ -49,8 +50,13 @@ def make_stack_template(normalized: dict) -> Template:
             Description="DB Subnet Group for RDS instances (must span at least 2 AZs)"
         ))
     
-    # Build ID for resource naming (can be passed from frontend or generated)
-    build_id = normalized.get("buildId", "foundry-build")
+    # Build ID for resource naming (can be passed from frontend or auto-generated)
+    # Generate unique build_id with timestamp to avoid resource name collisions
+    if "buildId" not in normalized or not normalized["buildId"]:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        build_id = f"foundry-build-{timestamp}"
+    else:
+        build_id = normalized["buildId"]
     
     # ========== PHASE 1: Parse edges and build dependency map ==========
     edges = normalized.get("edges", [])

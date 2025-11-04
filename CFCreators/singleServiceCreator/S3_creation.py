@@ -27,8 +27,7 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
     """
     # Generate unique number (6 characters) - use node ID if available for stability
     if node_id:
-        # Sanitize node_id to remove underscores and invalid chars
-        unique_number = sanitize_bucket_name_part(node_id[:6])
+        unique_number = sanitize_bucket_name_part(node_id[:6])  # SANITIZE node_id portion!
     else:
         # Fallback to timestamp-based for backwards compatibility
         import time
@@ -43,8 +42,11 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
     else:
         sanitized_user_name = "bucket"
     
+    # Sanitize build_id as well to be safe
+    sanitized_build_id = sanitize_bucket_name_part(build_id)
+    
     # Build bucket name: <build_id>-<unique_number>-<user_name>
-    bucket_name = f"{build_id}-{unique_number}-{sanitized_user_name}"
+    bucket_name = f"{sanitized_build_id}-{unique_number}-{sanitized_user_name}"
     
     # Ensure it meets S3 naming requirements
     bucket_name = bucket_name.lower()
@@ -52,7 +54,7 @@ def generate_unique_bucket_name(user_bucket_name: str = None, build_id: str = "d
     # Truncate if too long (max 63 chars)
     if len(bucket_name) > 63:
         # Keep build_id and unique_number, truncate user name
-        prefix = f"{build_id}-{unique_number}-"
+        prefix = f"{sanitized_build_id}-{unique_number}-"
         max_user_name_length = 63 - len(prefix)
         truncated_user_name = sanitized_user_name[:max_user_name_length]
         bucket_name = f"{prefix}{truncated_user_name}"
@@ -146,7 +148,7 @@ def add_s3_bucket(
         # Use the generated unique bucket name
         BucketName=bucket_name,
         
-        # Tags for resource management
+        # Tags for resource management (using Troposphere Tags object)
         Tags=Tags(
             Name=bucket_name,
             OriginalName=user_bucket_name or "bucket",
