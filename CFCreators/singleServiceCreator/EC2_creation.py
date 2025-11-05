@@ -87,6 +87,8 @@ def add_ec2_instance(
     environment_variables: Optional[Dict[str, str]] = None,
     build_id: str = "default",
 ) -> ec2.Instance:
+    
+
     """
     Add an AWS::EC2::Instance to the given Template.
     Expects node['data'] with: name, imageId, instanceType, optional keyName, userData, storage{...}.
@@ -181,15 +183,29 @@ def add_ec2_instance(
             BuildId=build_id,
         ),
     )
-    
+    # Enforce IMDSv2 (require tokens)
+    props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
+
+    props['IamInstanceProfile'] =  "ec2CodeDeploy"
     # Add IAM instance profile if provided
-    if instance_profile:
-        props["IamInstanceProfile"] = Ref(instance_profile)
+    
     
     if data.get("keyName"):
         props["KeyName"] = data["keyName"]
-    if combined_user_data:
-        props["UserData"] = Base64(Sub(combined_user_data))
+    
+    props["UserData"] = Base64(Sub("""#!/bin/bash
+sudo apt-get update -y
+sudo apt-get install -y ruby wget
+cd /home/ubuntu
+wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+chmod +x ./install
+sudo ./install auto
+sudo systemctl enable --now codedeploy-agent
+sudo systemctl status codedeploy-agent
+sudo tail -n 200 /var/log/aws/codedeploy-agent/codedeploy-agent.log
+"""))
+
+    
 
     instance = ec2.Instance(logical_id, **props)
     t.add_resource(instance)

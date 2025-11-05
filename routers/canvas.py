@@ -539,7 +539,7 @@ async def get_repos(authorization: Optional[str] = Header(None)):
 
         repos = response.json()
 
-        print(repos)
+        # print(repos)
 
         simplified = [
         {
@@ -562,6 +562,12 @@ async def cicd(Data: dict):
     print('route reached')
 
     url = Data.get("repo")
+
+    tag = Data.get("tag")
+
+    print("tag",tag)
+
+
 
 
     print("url",url)
@@ -616,7 +622,7 @@ async def cicd(Data: dict):
     print(status)
 
     if(status['build_status'] == 'SUCCEEDED'):
-        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}")
+        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
         print("hello world")
 
 
@@ -659,24 +665,10 @@ async def get_user_info():
     
 
 @builds.post('/')
-async def new_build(dict_data: dict): 
+async def new_build(dict_data: dict):
+     
 
-    print("builds route reached") 
-
-    print("data",dict_data)
-
-
-    database_url = os.getenv("DATABASE_URL")
-
-    #left off here 
-
-    try: 
-
-        print("hi there")
-
-    except Exception as e: 
-
-        print("error",e)
+    
 
     
 

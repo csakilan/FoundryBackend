@@ -1,6 +1,6 @@
 import boto3
 
-def codeDeploy(owner, repo, bucket_name, object_key):
+def codeDeploy(owner, repo, bucket_name, object_key,tag):
     """
     Deploys the latest build to EC2 using CodeDeploy.
     Automatically creates the application if it doesn't exist.
@@ -29,14 +29,14 @@ def codeDeploy(owner, repo, bucket_name, object_key):
                 applicationName=application_name,
                 deploymentGroupName=deployment_group_name,
                 serviceRoleArn=service_role_arn,
-                ec2TagFilters=[{'Key': 'Name', 'Value': 'Fast API Server', 'Type': 'KEY_AND_VALUE'}]
+                ec2TagFilters=[{'Key': 'OriginalName', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
             )
             print(f"Created deployment group '{deployment_group_name}'.")
         except code_deploy.exceptions.DeploymentGroupAlreadyExistsException:
             code_deploy.update_deployment_group(
                 applicationName=application_name,
                 currentDeploymentGroupName=deployment_group_name,
-                ec2TagFilters=[{'Key': 'Name', 'Value': 'Fast API Server', 'Type': 'KEY_AND_VALUE'}]
+                ec2TagFilters=[{'Key': 'OriginalName', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
             )
             print(f"Updated deployment group '{deployment_group_name}'.")
 
