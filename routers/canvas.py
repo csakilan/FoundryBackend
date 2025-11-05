@@ -25,6 +25,13 @@ import asyncpg,asyncio
 
 router = APIRouter(prefix="/canvas")
 
+builds = APIRouter(prefix='/builds')
+
+#builds 
+
+import uuid
+from datetime import datetime
+
 
 class DeployRequest(BaseModel):
     # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
@@ -71,14 +78,9 @@ class DeployRequest(BaseModel):
 
 
 class UpdateRequest(BaseModel):
-    # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
-    canvas: Optional[dict] = None
-    nodes: Optional[list] = None
-    edges: Optional[list] = None
-    viewport: Optional[dict] = None
-    
-    build_id: int  # ID of the build to update
-    stack_name: str  # CloudFormation stack name to update
+    canvas: Optional[dict] = None  # Canvas data (can be nested or at root)
+    build_id: Optional[int] = None  # ID of the build to update
+    stack_name: Optional[str] = None  # CloudFormation stack name to update
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
     auto_execute: bool = False  # If True, automatically execute the change set
@@ -180,11 +182,13 @@ def deploy_initiate(request: DeployRequest):
                 "success": True,
                 "message": "Deployment initiated successfully",
                 "stackId": result['stackId'],
-                "stackName": result['stackName'],
+                "stackName": result['stackName'],  # camelCase
+                "stack_name": result['stackName'],  # snake_case for compatibility
                 "region": result['region'],
                 "status": result['status'],
                 "outputs": result.get('outputs', []),
-                "buildId": build_id  # Will be None if database save failed
+                "buildId": build_id,  # camelCase for JavaScript convention
+                "build_id": build_id  # snake_case for Python convention (redundant but ensures compatibility)
             }
         else:
             print(f"\n✗ Deployment failed: {result.get('message')}")
@@ -253,6 +257,7 @@ def deploy_update(request: UpdateRequest):
         request: UpdateRequest containing:
             - canvas: New ReactFlow canvas JSON
             - build_id: ID of the build to update
+            - stack_name: CloudFormation stack name to update
             - owner_id: User ID (default: 1)
             - region: AWS region (default: us-east-1)
             - auto_execute: Whether to automatically execute changes (default: False)
@@ -263,7 +268,28 @@ def deploy_update(request: UpdateRequest):
     print("=" * 80)
     print("UPDATE REQUEST RECEIVED")
     print("=" * 80)
+    
+    # Validate required fields
+    if not request.build_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required field: build_id. The update endpoint requires build_id to identify which build to update."
+        )
+    
+    if not request.stack_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required field: stack_name. The update endpoint requires stack_name to identify which CloudFormation stack to update."
+        )
+    
+    if not request.canvas:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required field: canvas. The update endpoint requires canvas data to generate the new CloudFormation template."
+        )
+    
     print(f"Build ID: {request.build_id}")
+    print(f"Stack Name: {request.stack_name}")
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
     print(f"Auto Execute: {request.auto_execute}")
@@ -518,6 +544,8 @@ async def get_repos(authorization: Optional[str] = Header(None)):
 
         repos = response.json()
 
+        # print(repos)
+
         simplified = [
         {
             "name": repo["name"],
@@ -534,13 +562,17 @@ async def get_repos(authorization: Optional[str] = Header(None)):
 
 
 
-
-
 @router.post("/builds")
 async def cicd(Data: dict):
     print('route reached')
 
     url = Data.get("repo")
+
+    tag = Data.get("tag")
+
+    print("tag",tag)
+
+
 
 
     print("url",url)
@@ -595,7 +627,7 @@ async def cicd(Data: dict):
     print(status)
 
     if(status['build_status'] == 'SUCCEEDED'):
-        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}")
+        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
         print("hello world")
 
 
@@ -637,10 +669,64 @@ async def get_user_info():
 
     
 
+@builds.get('/new')
+async def new_build(id: str):
+    
+    print("info received:",id)
+
+    date = datetime.now()
+
+    print("date,",date)    
+
+    build_id = str(uuid.uuid4())
+
+    try: 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+        await database.execute("INSERT INTO newbuilds (build_id, owner_id,created_at) VALUES ($1, $2, $3) " \
+        "ON CONFLICT DO NOTHING", build_id, id, date)
+
+    except Exception as e: 
+
+        print(f"Failed to connect to database: {e}")
+        return
 
 
-    
-    
+
+
+
+
+
+
+    return {"message":build_id}
+
+
+@builds.get('/')
+async def get_builds(id: str): 
+
+    print("build id received:",id)
+
+    try: 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+        rows = await database.fetch("SELECT * FROM newbuilds WHERE owner_id = $1", id)
+
+        
+
+        build_info = [dict(row) for row in rows]
+
+        print("builds info:",build_info)
+
+        await database.close()
+
+        return build_info
+        
+
+    except Exception as e: 
+
+        print(f"Failed to connect to database: {e}")
+        return {"message":"Failed to connect to database."}
+
     
     
    

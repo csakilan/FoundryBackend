@@ -3,6 +3,44 @@ from typing import Dict, Any, List
 from troposphere import Template, Ref, Tags, Output, GetAtt
 import troposphere.dynamodb as dynamodb
 
+
+def sanitize_dynamodb_name(name: str) -> str:
+    """
+    Sanitize a string to meet DynamoDB table name requirements.
+    
+    DynamoDB table names must:
+    - Be 3-255 characters long
+    - Contain only letters, numbers, underscores, hyphens, and periods
+    
+    Args:
+        name: Raw name string
+        
+    Returns:
+        Sanitized name that meets DynamoDB requirements
+    """
+    # Replace invalid characters (spaces, colons, etc.) with hyphens
+    valid_chars = []
+    for char in name:
+        if char.isalnum() or char in ['_', '-', '.']:
+            valid_chars.append(char)
+        else:
+            valid_chars.append('-')
+    
+    # Join and remove consecutive hyphens
+    name = ''.join(valid_chars)
+    while '--' in name:
+        name = name.replace('--', '-')
+    
+    # Remove leading/trailing hyphens or periods
+    name = name.strip('-.')
+    
+    # Ensure it's not empty
+    if not name:
+        name = 'table'
+    
+    return name
+
+
 def add_dynamodb_table(
     t: Template,
     node: Dict[str, Any],
@@ -30,14 +68,15 @@ def add_dynamodb_table(
     
     # Generate unique table name: <build_id>-<unique_number>-<user_tablename>
     # Use node ID for stability across template generations
-    unique_number = node['id'][:6]  # First 6 characters of node ID
-    user_table_name = data['tableName'].replace(" ", "").replace("_", "")  # Sanitize user name
-    table_name = f"{build_id}-{unique_number}-{user_table_name}"
+    unique_number = sanitize_dynamodb_name(node['id'][:6])  # SANITIZE node_id portion!
+    user_table_name = sanitize_dynamodb_name(data['tableName'])  # Sanitize user name
+    sanitized_build_id = sanitize_dynamodb_name(build_id)  # Sanitize build_id
+    table_name = f"{sanitized_build_id}-{unique_number}-{user_table_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"DynamoDB{build_id.replace('-', '').title()}{unique_number}{user_table_name}"
+        logical_id = f"DynamoDB{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}{user_table_name.replace('-', '').replace(':', '')}"
     
     print(f"  → Generated unique DynamoDB table name: {table_name}")
     print(f"  → Generated logical ID: {logical_id}")

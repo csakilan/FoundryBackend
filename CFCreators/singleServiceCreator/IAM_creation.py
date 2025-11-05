@@ -3,6 +3,50 @@ from typing import Dict, Any, List
 from troposphere import Template, Ref, GetAtt, Sub
 import troposphere.iam as iam
 
+
+def sanitize_iam_name(name: str) -> str:
+    """
+    Sanitize a string to meet IAM naming requirements.
+    
+    IAM role names can contain:
+    - Letters (A-Z, a-z)
+    - Numbers (0-9)
+    - Hyphens (-)
+    - Underscores (_)
+    - Plus signs (+)
+    - Equals signs (=)
+    - Periods (.)
+    - At signs (@)
+    
+    Args:
+        name: Raw name string
+        
+    Returns:
+        Sanitized name that meets IAM requirements
+    """
+    # Replace invalid characters (colons, etc.) with hyphens
+    valid_chars = []
+    for char in name:
+        if char.isalnum() or char in ['-', '_', '+', '=', '.', '@']:
+            valid_chars.append(char)
+        else:
+            valid_chars.append('-')
+    
+    # Join and remove consecutive hyphens
+    name = ''.join(valid_chars)
+    while '--' in name:
+        name = name.replace('--', '-')
+    
+    # Remove leading/trailing hyphens
+    name = name.strip('-')
+    
+    # Ensure it's not empty
+    if not name:
+        name = 'role'
+    
+    return name
+
+
 def create_ec2_s3_role(
     t: Template,
     s3_bucket_resource,
@@ -28,17 +72,18 @@ def create_ec2_s3_role(
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
     # Use unique_id if provided for stability, otherwise fallback to timestamp
     if unique_id:
-        unique_number = unique_id[:6]
+        unique_number = sanitize_iam_name(unique_id[:6])  # SANITIZE unique_id portion!
     else:
         import time
         unique_number = str(int(time.time()))[-6:]
     
-    role_name = f"{build_id}-{unique_number}-ec2-s3-role"
-    policy_name = f"{build_id}-{unique_number}-s3-access-policy"
+    sanitized_build_id = sanitize_iam_name(build_id)  # Sanitize build_id too
+    role_name = f"{sanitized_build_id}-{unique_number}-ec2-s3-role"
+    policy_name = f"{sanitized_build_id}-{unique_number}-s3-access-policy"
     
     # Generate logical ID if not provided
     if logical_id is None:
-        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2S3Role"
+        logical_id = f"IAM{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}EC2S3Role"
     
     print(f"  → Generated unique IAM role name: {role_name}")
     print(f"  → Generated logical ID: {logical_id}")
@@ -87,7 +132,7 @@ def create_ec2_s3_role(
     t.add_resource(role)
     
     # Create Instance Profile (required bridge between IAM role and EC2)
-    instance_profile_name = f"{build_id}-{unique_number}-ec2-s3-profile"
+    instance_profile_name = f"{sanitized_build_id}-{unique_number}-ec2-s3-profile"
     instance_profile_logical_id = f"{logical_id}InstanceProfile"
     
     instance_profile = iam.InstanceProfile(
@@ -126,17 +171,18 @@ def create_ec2_dynamodb_role(
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
     # Use unique_id if provided for stability, otherwise fallback to timestamp
     if unique_id:
-        unique_number = unique_id[:6]
+        unique_number = sanitize_iam_name(unique_id[:6])  # SANITIZE unique_id portion!
     else:
         import time
         unique_number = str(int(time.time()))[-6:]
     
-    role_name = f"{build_id}-{unique_number}-ec2-dynamodb-role"
-    policy_name = f"{build_id}-{unique_number}-dynamodb-access-policy"
+    sanitized_build_id = sanitize_iam_name(build_id)  # Sanitize build_id too
+    role_name = f"{sanitized_build_id}-{unique_number}-ec2-dynamodb-role"
+    policy_name = f"{sanitized_build_id}-{unique_number}-dynamodb-access-policy"
     
     # Generate logical ID if not provided
     if logical_id is None:
-        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2DynamoDBRole"
+        logical_id = f"IAM{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}EC2DynamoDBRole"
     
     print(f"  → Generated unique IAM role name: {role_name}")
     print(f"  → Generated logical ID: {logical_id}")
@@ -184,7 +230,7 @@ def create_ec2_dynamodb_role(
     t.add_resource(role)
     
     # Create Instance Profile
-    instance_profile_name = f"{build_id}-{unique_number}-ec2-dynamodb-profile"
+    instance_profile_name = f"{sanitized_build_id}-{unique_number}-ec2-dynamodb-profile"
     instance_profile_logical_id = f"{logical_id}InstanceProfile"
     
     instance_profile = iam.InstanceProfile(
@@ -223,16 +269,17 @@ def create_ec2_multi_service_role(
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
     # Use unique_id if provided for stability, otherwise fallback to timestamp
     if unique_id:
-        unique_number = unique_id[:6]
+        unique_number = sanitize_iam_name(unique_id[:6])  # SANITIZE unique_id portion!
     else:
         import time
         unique_number = str(int(time.time()))[-6:]
     
-    role_name = f"{build_id}-{unique_number}-ec2-multi-service-role"
+    sanitized_build_id = sanitize_iam_name(build_id)  # Sanitize build_id too
+    role_name = f"{sanitized_build_id}-{unique_number}-ec2-multi-service-role"
     
     # Generate logical ID if not provided
     if logical_id is None:
-        logical_id = f"IAM{build_id.replace('-', '').title()}{unique_number}EC2MultiServiceRole"
+        logical_id = f"IAM{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}EC2MultiServiceRole"
     
     print(f"  → Generated unique multi-service IAM role name: {role_name}")
     print(f"  → Generated logical ID: {logical_id}")
@@ -249,7 +296,7 @@ def create_ec2_multi_service_role(
         
         policies.append(
             iam.Policy(
-                PolicyName=f"{build_id}-{unique_number}-s3-access-policy",  # Unique policy name
+                PolicyName=f"{sanitized_build_id}-{unique_number}-s3-access-policy",  # Unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -272,7 +319,7 @@ def create_ec2_multi_service_role(
         
         policies.append(
             iam.Policy(
-                PolicyName=f"{build_id}-{unique_number}-dynamodb-access-policy",  # Unique policy name
+                PolicyName=f"{sanitized_build_id}-{unique_number}-dynamodb-access-policy",  # Unique policy name
                 PolicyDocument={
                     "Version": "2012-10-17",
                     "Statement": [{
@@ -315,7 +362,7 @@ def create_ec2_multi_service_role(
     t.add_resource(role)
     
     # Create Instance Profile
-    instance_profile_name = f"{build_id}-{unique_number}-ec2-multi-service-profile"
+    instance_profile_name = f"{sanitized_build_id}-{unique_number}-ec2-multi-service-profile"
     instance_profile_logical_id = f"{logical_id}InstanceProfile"
     
     instance_profile = iam.InstanceProfile(
