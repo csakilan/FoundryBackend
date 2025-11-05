@@ -27,6 +27,11 @@ router = APIRouter(prefix="/canvas")
 
 builds = APIRouter(prefix='/builds')
 
+#builds 
+
+import uuid
+from datetime import datetime
+
 
 class DeployRequest(BaseModel):
     # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
@@ -664,18 +669,63 @@ async def get_user_info():
 
     
 
-@builds.post('/')
-async def new_build(dict_data: dict):
-     
-
+@builds.get('/new')
+async def new_build(id: str):
     
+    print("info received:",id)
 
-    
+    date = datetime.now()
+
+    print("date,",date)    
+
+    build_id = str(uuid.uuid4())
+
+    try: 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+        await database.execute("INSERT INTO newbuilds (build_id, owner_id,created_at) VALUES ($1, $2, $3) " \
+        "ON CONFLICT DO NOTHING", build_id, id, date)
+
+    except Exception as e: 
+
+        print(f"Failed to connect to database: {e}")
+        return
 
 
-    return {"message":"build created"}
 
 
+
+
+
+
+    return {"message":build_id}
+
+
+@builds.get('/')
+async def get_builds(id: str): 
+
+    print("build id received:",id)
+
+    try: 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+        rows = await database.fetch("SELECT * FROM newbuilds WHERE owner_id = $1", id)
+
+        
+
+        build_info = [dict(row) for row in rows]
+
+        print("builds info:",build_info)
+
+        await database.close()
+
+        return build_info
+        
+
+    except Exception as e: 
+
+        print(f"Failed to connect to database: {e}")
+        return {"message":"Failed to connect to database."}
 
     
     
