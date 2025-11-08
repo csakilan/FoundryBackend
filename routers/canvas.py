@@ -758,8 +758,40 @@ async def settings(data: dict):
 
 
     
-@router.post("invites")
+@router.post("/invite")
 async def send_invites(data: dict): 
+
+    invite_id = data.get("invite_id")
+    build_id = data.get("build_id")
+    owner_id = data.get("owner_id")
+    
+
+
+
+    try: 
+ 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        # emails = data.get("emails")
+
+        # build_id = data.get("build_id")
+
+        # for email in emails: 
+        #     result = await database.execute("INSERT INTO build_invites (build_id, email) VALUES ($1, $2) " \
+        #     "ON CONFLICT DO NOTHING", build_id, email)
+
+        #     print("invite result",result)
+
+
+
+    
+
+    except Exception as e: 
+        print("failed to send invites",e)
+
+
+    print("data",data)
 
     print("route reached")
 
