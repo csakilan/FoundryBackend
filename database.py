@@ -5,6 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from typing import Dict, Any, Optional
 import os
+import random
 from contextlib import contextmanager
 from dotenv import load_dotenv
 
@@ -69,9 +70,21 @@ def test_connection():
 # BUILD OPERATIONS (for canvas and CF template storage)
 # ============================================================================
 
+def generate_8_digit_id() -> int:
+    """
+    Generate a random 8-digit integer ID.
+    Range: 10000000 to 99999999
+    
+    Returns:
+        8-digit integer
+    """
+    return random.randint(10000000, 99999999)
+
+
 def save_build(owner_id: int, canvas: Dict[str, Any], cf_template: Optional[Dict[str, Any]] = None) -> int:
     """
     Save a new build with canvas and optional CloudFormation template.
+    Generates an 8-digit unique ID for the build.
     
     Args:
         owner_id: User ID of the build owner
@@ -79,21 +92,38 @@ def save_build(owner_id: int, canvas: Dict[str, Any], cf_template: Optional[Dict
         cf_template: Generated CloudFormation template JSON
         
     Returns:
-        build_id: ID of the created build
+        build_id: 8-digit ID of the created build
     """
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO build (owner_id, canvas, cf_template)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            (owner_id, Json(canvas), Json(cf_template) if cf_template else None)
-        )
-        build_id = cursor.fetchone()[0]
-        print(f"✓ Build saved with ID: {build_id}")
-        return build_id
+        
+        # Try up to 10 times to insert with a unique ID
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            build_id = generate_8_digit_id()
+            
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO build (id, owner_id, canvas, cf_template)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (build_id, owner_id, Json(canvas), Json(cf_template) if cf_template else None)
+                )
+                # If successful, retrieve the ID and return
+                build_id = cursor.fetchone()[0]
+                print(f"✓ Build saved with ID: {build_id}")
+                return build_id
+                
+            except psycopg2.errors.UniqueViolation:
+                # ID collision - rollback and try again with a new ID
+                conn.rollback()
+                if attempt == max_attempts - 1:
+                    raise Exception(f"Failed to generate unique build ID after {max_attempts} attempts")
+                continue
+        
+        raise Exception("Failed to save build: exceeded maximum retry attempts")
 
 
 def get_build(build_id: int) -> Optional[Dict[str, Any]]:

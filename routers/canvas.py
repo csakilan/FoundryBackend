@@ -1,80 +1,22 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, HTTPException, Header
+from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
 import json
 from pathlib import Path
-from database import save_build, log_activity
-from fastapi import APIRouter, HTTPException,Header
-from typing import Optional
 import httpx
-import requests
-#cicd imports
-from CICD.addYamlZip import addAppSpec, addBuildSpec, fastapi_appspec_template,fastapi_buildspec_template
-from CICD.upload_s3 import upload_to_s3
-import time
-from CICD.trigger_codebuild import trigger_codebuild
-from CICD.deploymentScripts import addStartScript,start_sh_template,stop_sh_template,addStopScript,addInstallScript,install_sh_template
-from CICD.code_Deploy import codeDeploy
+from database import save_build, log_activity, get_build, update_build_canvas_and_template, get_builds_by_owner
 
-#settings imports 
-from settings.get_user import get_users
-from dotenv import load_dotenv
-import os
-import asyncpg,asyncio
 
 router = APIRouter(prefix="/canvas")
-
-builds = APIRouter(prefix='/builds')
-
-#builds 
-
-import uuid
-from datetime import datetime
+builds = APIRouter(prefix="/builds")
 
 
 class DeployRequest(BaseModel):
-    # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
-    canvas: Optional[dict] = None
-    nodes: Optional[list] = None
-    edges: Optional[list] = None
-    viewport: Optional[dict] = None
-    buildId: Optional[str] = None
-    
+    buildId: int  # REQUIRED - Build ID from /builds/new
+    canvas: dict
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
-    
-    class Config:
-        extra = 'allow'
-    
-    @field_validator('canvas', mode='before')
-    @classmethod
-    def build_canvas(cls, v, info):
-        """If canvas is not provided, build it from nodes/edges"""
-        # If canvas is already provided, use it
-        if v is not None:
-            return v
-        # Otherwise, check if we have nodes/edges at root level
-        # Note: At validation time, we have access to all field values via info.data
-        return None
-    
-    def get_canvas_data(self) -> dict:
-        """Get canvas data regardless of input format"""
-        if self.canvas is not None:
-            return self.canvas
-        
-        # Build from flat structure
-        canvas = {}
-        if self.nodes is not None:
-            canvas['nodes'] = self.nodes
-        if self.edges is not None:
-            canvas['edges'] = self.edges
-        if self.viewport is not None:
-            canvas['viewport'] = self.viewport
-        if self.buildId is not None:
-            canvas['buildId'] = self.buildId
-        
-        return canvas
 
 
 class UpdateRequest(BaseModel):
@@ -84,25 +26,6 @@ class UpdateRequest(BaseModel):
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
     auto_execute: bool = False  # If True, automatically execute the change set
-    
-    class Config:
-        extra = 'allow'
-    
-    def get_canvas_data(self) -> dict:
-        """Get canvas data regardless of input format"""
-        if self.canvas is not None:
-            return self.canvas
-        
-        # Build from flat structure
-        canvas = {}
-        if self.nodes is not None:
-            canvas['nodes'] = self.nodes
-        if self.edges is not None:
-            canvas['edges'] = self.edges
-        if self.viewport is not None:
-            canvas['viewport'] = self.viewport
-        
-        return canvas
 
 
 @router.get('/health')
@@ -116,8 +39,8 @@ def deploy_initiate(request: DeployRequest):
     
     Args:
         request: DeployRequest containing:
-            - canvas: Frontend ReactFlow JSON (wrapped format)
-              OR nodes/edges/viewport directly (flat format)
+            - buildId: Build ID from /builds/new (REQUIRED)
+            - canvas: Frontend ReactFlow JSON
             - owner_id: User ID (default: 1)
             - region: AWS region (default: us-east-1)
         
@@ -127,43 +50,65 @@ def deploy_initiate(request: DeployRequest):
     print("=" * 80)
     print("DEPLOYMENT REQUEST RECEIVED")
     print("=" * 80)
+    print(f"Build ID: {request.buildId}")
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
+    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
     
-    canvas_data = request.get_canvas_data()
-    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
+    # Get build_id from request (created in /builds/new)
+    build_id = request.buildId
+    canvas_data = request.canvas
     
-    # Deploy to AWS using CFCreator
+    # Verify build exists in database
     try:
+        existing_build = get_build(build_id)
+        if not existing_build:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Build ID {build_id} not found. Please create a new build first with /builds/new"
+            )
+        print(f"✓ Build {build_id} found in database")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking build: {str(e)}"
+        )
+    
+    # Deploy to AWS using CFCreator with build_id
+    try:
+        print(f"\n[1/3] Deploying to AWS with build_id={build_id}...")
         result = CFCreator.deployToAWS(
             canvas_data=canvas_data,
-            stack_name=None,  # Auto-generate unique name with timestamp
-            region=request.region
+            stack_name=None,  # Auto-generate using build_id
+            region=request.region,
+            build_id=str(build_id)  # Pass database ID for resource naming
         )
         
         if result['success']:
             print("\n✓ Deployment successful!")
             
-            # Step 2: Save to database after successful deployment
+            # Step 2: Update database with canvas and CloudFormation template
             try:
-                print("\n[Database] Saving build to database...")
+                print(f"\n[2/3] Updating build {build_id} with canvas and CF template...")
                 
-                # Get the generated CloudFormation template from the result
-                # Note: We need to regenerate it here since deployToAWS doesn't return it
+                # Get the generated CloudFormation template
                 from CFCreators.CFCreator import createGeneration
-                cf_template = createGeneration(canvas_data)
+                cf_template = createGeneration(canvas_data, build_id=str(build_id), save_to_file=True)
                 template_json = json.loads(cf_template.to_json())
                 
-                # Save build to database (only owner_id, canvas, and cf_template)
-                build_id = save_build(
-                    owner_id=request.owner_id,
+                # Update build with canvas and CF template
+                update_build_canvas_and_template(
+                    build_id=build_id,
                     canvas=canvas_data,
                     cf_template=template_json
                 )
                 
-                print(f"✓ Build saved to database with ID: {build_id}")
+                print(f"✓ Build {build_id} updated successfully")
                 
                 # Log successful deployment activity
+                print(f"\n[3/3] Logging deployment activity...")
                 log_activity(
                     build_id=build_id,
                     user_id=request.owner_id,
@@ -172,11 +117,10 @@ def deploy_initiate(request: DeployRequest):
                 
                 print("✓ Activity logged")
                 
-            except Exception as db_error:
-                # Log database error but don't fail the deployment response
-                print(f"\n⚠ Warning: Database save failed: {str(db_error)}")
-                print("Deployment was successful, but build was not saved to database")
-                build_id = None
+            except Exception as update_error:
+                # Log update error but don't fail the deployment response
+                print(f"\n⚠ Warning: Database update failed: {str(update_error)}")
+                print("Deployment was successful, but canvas/template was not saved to database")
             
             return {
                 "success": True,
@@ -293,9 +237,7 @@ def deploy_update(request: UpdateRequest):
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
     print(f"Auto Execute: {request.auto_execute}")
-    
-    canvas_data = request.get_canvas_data()
-    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
+    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
     
     try:
         # Step 1: Get the old build from database
@@ -317,7 +259,7 @@ def deploy_update(request: UpdateRequest):
         # Step 2: Generate new CloudFormation template from new canvas
         print(f"\n[2/5] Generating new CloudFormation template...")
         from CFCreators.CFCreator import createGeneration
-        new_cf_template = createGeneration(canvas_data)
+        new_cf_template = createGeneration(request.canvas)
         new_template_json = new_cf_template.to_json()
         new_template_dict = json.loads(new_template_json)
         
@@ -333,7 +275,7 @@ def deploy_update(request: UpdateRequest):
         vpc_resources = deployer.get_default_vpc_resources()
         
         # Check if template has RDS and setup DB Subnet Group if needed
-        has_rds = any(node.get("type") == "RDS" for node in canvas_data.get("nodes", []))
+        has_rds = any(node.get("type") == "RDS" for node in request.canvas.get("nodes", []))
         if has_rds:
             db_subnet_group = deployer.get_or_create_db_subnet_group(vpc_resources['VpcId'])
             vpc_resources['DBSubnetGroupName'] = db_subnet_group
@@ -367,7 +309,7 @@ def deploy_update(request: UpdateRequest):
         print(f"\n[5/5] Updating database...")
         update_build_canvas_and_template(
             build_id=request.build_id,
-            canvas=canvas_data,
+            canvas=request.canvas,
             cf_template=new_template_dict
         )
         print(f"  ✓ Database updated")
@@ -526,241 +468,111 @@ def delete_changeset(
             detail=f"Failed to delete change set: {str(e)}"
         )
 
-#cicd router
+
+# ============================================================================
+# BUILD MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@builds.get('/new')
+def new_build(id: str):
+    """
+    Create a new build record in the database.
+    Returns the auto-generated build_id that frontend will use for deployment.
+    
+    Args:
+        id: User/owner ID
+        
+    Returns:
+        {"build_id": <integer>}
+    """
+    print("=" * 60)
+    print(f"[NEW BUILD] Creating new build for user: {id}")
+    print("=" * 60)
+    
+    try:
+        # Create new build with empty canvas and cf_template
+        build_id = save_build(
+            owner_id=int(id),
+            canvas=None,
+            cf_template=None
+        )
+        
+        print(f"✓ Build created with ID: {build_id}")
+        print(f"  - Owner: {id}")
+        print(f"  - Canvas: Empty (will be filled on deploy)")
+        print(f"  - CF Template: Empty (will be filled on deploy)")
+        
+        return {"build_id": build_id}
+        
+    except Exception as e:
+        print(f"✗ Failed to create build: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create build: {str(e)}"
+        )
+
+
+@builds.get('/')
+def get_builds(id: str):
+    """
+    Get all builds for a specific owner/user.
+    
+    Args:
+        id: User/owner ID
+        
+    Returns:
+        List of builds with their metadata
+    """
+    print("=" * 60)
+    print(f"[GET BUILDS] Fetching builds for user: {id}")
+    print("=" * 60)
+
+    try:
+        builds = get_builds_by_owner(owner_id=int(id))
+        
+        print(f"✓ Found {len(builds)} builds for user {id}")
+        
+        return {"builds": builds}
+        
+    except Exception as e:
+        print(f"✗ Failed to fetch builds: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch builds: {str(e)}"
+        )
+
 
 @router.get('/')
-async def get_repos(authorization: Optional[str] = Header(None)): 
-
-    if not authorization: 
+async def get_repos(authorization: Optional[str] = Header(None)):
+    if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header missing")
-    
-
-
     token = authorization.split(" ")[1]
-
-    async with httpx.AsyncClient() as client:  
+    async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.github.com/users/{token}/repos")
-        
-
         repos = response.json()
-
         # print(repos)
-
         simplified = [
         {
             "name": repo["name"],
             "html_url": repo["html_url"],
             "owner": repo["owner"]["login"],
             "ref": "main",
-
-
         }
         for repo in repos
     ]
         return simplified
-    
 
 
 
-@router.post("/builds")
-async def cicd(Data: dict):
-    print('route reached')
 
-    url = Data.get("repo")
 
-    tag = Data.get("tag")
 
-    print("tag",tag)
 
 
 
 
-    print("url",url)
 
-    owner = url.split("/")[1]
-    repo = url.split("/")[0]
 
-    print(owner,repo)
 
-
-    ref = "main"
-
-    zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
-
-    print(zip_url)
-
-
-    out_file = f"{repo}-{ref}.zip"
-
-    headers = {"user":"test"}
-
-    response = requests.get(zip_url, headers=headers,allow_redirects=True)  #make the request to download the zip file
-
-    S3_BUCKET_NAME = "foundry-codebuild-zip"
-
-
-
-    S3_KEY = f"{owner}/{out_file}"  # the path for the file in the s3 bucket
-
-    print(S3_KEY)
-
-
-    if response.status_code == 200: 
-        with open(out_file, "wb") as file:
-            file.write(response.content)  #write the content to a file
-        print(f"Downloaded {out_file} successfully.")
-        path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
-        addAppSpec(out_file,fastapi_appspec_template, overWrite=True)
-        addStopScript(out_file, stop_sh_template, overWrite=True)
-        addInstallScript(out_file, install_sh_template, overWrite=True)
-        addStartScript(out_file, start_sh_template, overWrite=True)
-       
-    else: 
-        print(f"Failed to download file: {response.status_code} - {response.text}")
-
-    
-    upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-    time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
-
-    status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
-
-    print(status)
-
-    if(status['build_status'] == 'SUCCEEDED'):
-        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
-        print("hello world")
-
-
-
-@router.get("/users")
-async def get_user_info():
-    load_dotenv()
-
-    DATABASE_URL = os.getenv("DATABASE_URL")
-
-    print("DATABASE_URL:", DATABASE_URL)
-
-    try: 
-        info = await asyncpg.connect(DATABASE_URL)
-
-
-        rows = await info.fetch("SELECT * FROM users;")
-
-        user_info = []
-        for row in rows:
-            user_info.append({"id": row["id"], "email": row["email"]})
-
-    
-        # print("users:",user_info)
-
-
-        await info.close()
-
-
-
-
-        return user_info
-    
-
-    except Exception as e: 
-        print(f"Failed to connect to database: {e}")
-        return
-
-
-    
-
-@builds.get('/new')
-async def new_build(id: str):
-    
-    print("info received:",id)
-
-    date = datetime.now()
-
-    print("date,",date)    
-
-    build_id = str(uuid.uuid4())
-
-    try: 
-        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
-
-        await database.execute("INSERT INTO newbuilds (build_id, owner_id,created_at) VALUES ($1, $2, $3) " \
-        "ON CONFLICT DO NOTHING", build_id, id, date)
-
-    except Exception as e: 
-
-        print(f"Failed to connect to database: {e}")
-        return
-
-
-
-
-
-
-
-
-    return {"message":build_id}
-
-
-@builds.get('/')
-async def get_builds(id: str): 
-
-    print("build id received:",id)
-
-    try: 
-        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
-
-        rows = await database.fetch("SELECT * FROM newbuilds WHERE owner_id = $1", id)
-
-        
-
-        build_info = [dict(row) for row in rows]
-
-        # print("builds info:",build_info)
-
-        await database.close()
-
-        return build_info
-        
-
-    except Exception as e: 
-
-        print(f"Failed to connect to database: {e}")
-        return {"message":"Failed to connect to database."}
-
-    
-    
-   
-@router.post('/settings')
-async def settings(data: dict): 
-
-    print("data received:",data)
-
-    project = data.get("projectName")
-
-    id = data.get("build_id")
-
-    description = data.get("description")
-
-    try: 
-
-        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
-
-
-        result = await database.execute("UPDATE newbuilds SET project_name = $1, description = $2 WHERE build_id = $3", project, description,id)
-
-        print("result",result)
-
-
-
-    except Exception as e: 
-
-        print("failed to save",e)
-
-
-    
-@router.post("invites")
-async def send_invites(data: dict): 
-
-    print("route reached")
 
 

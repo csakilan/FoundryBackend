@@ -5,18 +5,19 @@ from pathlib import Path
 import json
 
 
-def createGeneration(data: dict, save_to_file: bool = True):
+def createGeneration(data: dict, save_to_file: bool = True, build_id: str = None):
     """
     Takes frontend ReactFlow JSON and generates a CloudFormation template.
     
     Args:
         data: Frontend ReactFlow JSON containing nodes and edges
         save_to_file: Whether to save the template to createdCFs folder (default: True)
+        build_id: Database build ID for file naming (used instead of timestamp)
         
     Returns:
         CloudFormation Template object
     """
-    CFTemplate = template_composer.make_stack_template(data)
+    CFTemplate = template_composer.make_stack_template(data, build_id=build_id)
     
     # Print the CloudFormation template in JSON format
     print("CLOUDFORMATION TEMPLATE (JSON):")
@@ -26,8 +27,13 @@ def createGeneration(data: dict, save_to_file: bool = True):
     
     # Save to allJSONs/createdCFs folder
     if save_to_file:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = Path(__file__).parent / "allJSONs" / "createdCFs" / f"CF_{timestamp}.json"
+        if build_id:
+            filename = f"CF_{build_id}.json"
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"CF_{timestamp}.json"
+        
+        output_path = Path(__file__).parent / "allJSONs" / "createdCFs" / filename
         
         # Ensure createdCFs directory exists
         output_path.parent.mkdir(exist_ok=True)
@@ -47,7 +53,7 @@ def createGeneration(data: dict, save_to_file: bool = True):
 
 
 
-def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-east-1'):
+def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-east-1', build_id: str = None):
     """
     Complete deployment pipeline: Generate CloudFormation template and deploy to AWS.
     
@@ -55,6 +61,7 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
         canvas_data: Frontend ReactFlow JSON containing nodes and edges
         stack_name: Name for the CloudFormation stack (auto-generated if not provided)
         region: AWS region to deploy to (default: us-east-1)
+        build_id: Database build ID for resource naming (used instead of timestamp)
         
     Returns:
         Dictionary with deployment details:
@@ -76,7 +83,7 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
     try:
         # Step 1: Generate CloudFormation template
         print("\n[1/4] Generating CloudFormation template...")
-        cf_template = createGeneration(canvas_data)
+        cf_template = createGeneration(canvas_data, build_id=build_id)
         template_json = cf_template.to_json()
         
         template_dict = json.loads(template_json)
@@ -105,8 +112,11 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
         
         # Step 4: Deploy to AWS
         if not stack_name:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            stack_name = f"foundry-stack-{timestamp}"
+            if build_id:
+                stack_name = f"foundry-stack-{build_id}"
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                stack_name = f"foundry-stack-{timestamp}"
         
         print(f"\n[4/4] Deploying stack '{stack_name}' to AWS...")
         stack_id = deployer.deploy_stack(

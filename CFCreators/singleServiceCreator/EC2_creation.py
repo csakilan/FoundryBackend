@@ -183,8 +183,10 @@ def add_ec2_instance(
             BuildId=build_id,
         ),
     )
-    # Enforce IMDSv2 (require tokens)
-    props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
+    
+    # Note: MetadataOptions is not supported in this Troposphere version
+    # Uncomment below when upgrading to Troposphere 4.0+:
+    # props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
 
     props['IamInstanceProfile'] =  "ec2CodeDeploy"
     # Add IAM instance profile if provided
