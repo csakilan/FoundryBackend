@@ -648,10 +648,10 @@ async def get_user_info():
 
         user_info = []
         for row in rows:
-            user_info.append(row.get("email"))
+            user_info.append({"id": row["id"], "email": row["email"]})
 
-        
-        print("users:",user_info)
+    
+        # print("users:",user_info)
 
 
         await info.close()
@@ -715,7 +715,7 @@ async def get_builds(id: str):
 
         build_info = [dict(row) for row in rows]
 
-        print("builds info:",build_info)
+        # print("builds info:",build_info)
 
         await database.close()
 
@@ -730,5 +730,37 @@ async def get_builds(id: str):
     
     
    
+@router.post('/settings')
+async def settings(data: dict): 
+
+    print("data received:",data)
+
+    project = data.get("projectName")
+
+    id = data.get("build_id")
+
+    description = data.get("description")
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        result = await database.execute("UPDATE newbuilds SET project_name = $1, description = $2 WHERE build_id = $3", project, description,id)
+
+        print("result",result)
+
+
+
+    except Exception as e: 
+
+        print("failed to save",e)
+
+
+    
+@router.post("invites")
+async def send_invites(data: dict): 
+
+    print("route reached")
 
 
