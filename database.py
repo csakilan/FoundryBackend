@@ -66,9 +66,6 @@ def test_connection():
         return False
 
 
-# ============================================================================
-# BUILD OPERATIONS (for canvas and CF template storage)
-# ============================================================================
 
 def generate_8_digit_id() -> int:
     """
@@ -176,28 +173,20 @@ def update_build_canvas_and_template(build_id: int, canvas: Dict[str, Any], cf_t
         )
         rows_affected = cursor.rowcount
         if rows_affected > 0:
-            print(f"✓ Build {build_id} updated successfully")
+            print(f"Build {build_id} updated successfully")
             return True
         else:
-            print(f"✗ Build {build_id} not found")
+            print(f"Build {build_id} not found")
             return False
 
 
 def get_builds_by_owner(owner_id: int) -> list:
-    """
-    Get all builds owned by a user.
-    
-    Args:
-        owner_id: User ID
-        
-    Returns:
-        List of build records
-    """
+  
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
-            SELECT id, owner_id, canvas, cf_template, created_at
+            SELECT id, owner_id, canvas, cf_template, created_at,project_name,description
             FROM build
             WHERE owner_id = %s
             ORDER BY created_at DESC
@@ -232,19 +221,9 @@ def is_build_deployed(build_id: int) -> bool:
         return result[0] if result else False
 
 
-# ============================================================================
-# ACTIVITY LOG
-# ============================================================================
 
 def log_activity(build_id: int, user_id: int, change: str):
-    """
-    Log activity for a build.
-    
-    Args:
-        build_id: ID of the build
-        user_id: ID of the user making the change
-        change: Description of the change
-    """
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(

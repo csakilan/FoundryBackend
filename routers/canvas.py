@@ -19,7 +19,9 @@ from settings.get_user import get_users
 from dotenv import load_dotenv
 import os
 import asyncpg,asyncio
+from datetime import datetime
 
+import random
 
 router = APIRouter(prefix="/canvas")
 builds = APIRouter(prefix="/builds")
@@ -482,25 +484,10 @@ def delete_changeset(
         )
 
 
-# ============================================================================
-# BUILD MANAGEMENT ENDPOINTS
-# ============================================================================
 
 @builds.get('/new')
 def new_build(id: str):
-    """
-    Create a new build record in the database.
-    Returns the auto-generated build_id that frontend will use for deployment.
-    
-    Args:
-        id: User/owner ID
-        
-    Returns:
-        {"build_id": <integer>}
-    """
-    print("=" * 60)
-    print(f"[NEW BUILD] Creating new build for user: {id}")
-    print("=" * 60)
+  
     
     try:
         # Create new build with empty canvas and cf_template
@@ -510,10 +497,6 @@ def new_build(id: str):
             cf_template=None
         )
         
-        print(f"✓ Build created with ID: {build_id}")
-        print(f"  - Owner: {id}")
-        print(f"  - Canvas: Empty (will be filled on deploy)")
-        print(f"  - CF Template: Empty (will be filled on deploy)")
         
         return {"build_id": build_id}
         
@@ -527,23 +510,10 @@ def new_build(id: str):
 
 @builds.get('/')
 def get_builds(id: str):
-    """
-    Get all builds for a specific owner/user.
-    
-    Args:
-        id: User/owner ID
-        
-    Returns:
-        List of builds with their metadata
-    """
-    print("=" * 60)
-    print(f"[GET BUILDS] Fetching builds for user: {id}")
-    print("=" * 60)
-
+  
     try:
         builds = get_builds_by_owner(owner_id=int(id))
         
-        print(f"✓ Found {len(builds)} builds for user {id}")
         
         return {"builds": builds}
         
@@ -643,15 +613,168 @@ async def cicd(Data: dict):
     if(status['build_status'] == 'SUCCEEDED'):
         codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
         print("hello world")
+    
+
+@router.get("/users")
+async def get_user_info():
+    load_dotenv()
+
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
+    print("DATABASE_URL:", DATABASE_URL)
+
+    try: 
+        info = await asyncpg.connect(DATABASE_URL)
+
+
+        rows = await info.fetch("SELECT * FROM users;")
+
+        user_info = []
+        for row in rows:
+            user_info.append({"id": row["id"], "email": row["email"]})
+
+    
+        # print("users:",user_info)
+
+
+        await info.close()
 
 
 
 
+        return user_info
+    
+
+    except Exception as e: 
+        print(f"Failed to connect to database: {e}")
+        return
+
+
+@router.post('/settings')
+async def settings(data: dict): 
+
+    print("data received:",data)
+
+    project = data.get("projectName")
+
+    id = data.get("build_id")
+
+    description = data.get("description")
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        result = await database.execute("UPDATE newbuilds SET project_name = $1, description = $2 WHERE build_id = $3", project, description,id)
+
+        print("result",result)
+
+
+
+    except Exception as e: 
+
+        print("failed to save",e)
+
+@router.post("/invite")
+async def send_invites(data: dict): 
+
+
+    
+
+    
+    invites = data.get('invite_id')
+
+    build_id = data.get('build_id')
+
+    owner_id = data.get('owner_id')
+
+    project_name = data.get('project_name')
+
+    description = data.get('description')
+
+    try: 
+ 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        update_build = await database.execute("UPDATE build SET project_name = $1,description = $2 WHERE id = $3",project_name,description, int(build_id))
+
+
+        for invite in invites:
+            id = random.randint(100000,999999)
+            result = await database.execute("INSERT INTO invites (invite__id, build_id, owner_id, project_name, description,id) VALUES ($1, $2, $3, $4, $5,$6)",
+                                            int(invite), int(build_id), int(owner_id), project_name, description,id
+)
+
+
+    
+
+    except Exception as e: 
+        print("failed to send invites",e)
+
+
+@builds.get("/invitations")
+async def get_invite_info(id: str):
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        response = await database.fetch("SELECT * FROM invites WHERE invite__id = $1", int(id)) 
+        return [dict(row) for row in response] 
+
+        
+
+
+    
+    except Exception as e: 
+        print("error",e)
+    
+    
+    print("hello world")
+
+
+@builds.post("/invitations/decline")
+async def decline_invite(data: dict): 
+
+    id = data.get("id")
+
+    print(id)
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        response = await database.execute("DELETE FROM invites WHERE id = $1", int(id)) 
+
+        print("response",response)
+
+
+
+    except Exception as e: 
+        print("error",e)
+
+
+@builds.post('/invitations/accept')
+async def accept_invite(data:dict):
+
+    
+
+
+    try: 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        update = await database.execute("UPDATE invites SET invite_status = $1 WHERE id = $2", True, int(data.get("id")))
+
+        print("update",update)
 
 
 
 
+    except Exception as e:
 
-
-
-
+        print("error",e)
