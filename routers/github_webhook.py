@@ -13,9 +13,10 @@ from CICD.upload_s3 import upload_to_s3
 from CICD.addYamlZip import addBuildSpec, addAppSpec, fastapi_buildspec_template, fastapi_appspec_template
 from CICD.deploymentScripts import addStartScript, addStopScript, addInstallScript, start_sh_template, stop_sh_template, install_sh_template
 from CICD.add_webhook import create_github_webhook
+from database import get_access_token_for_owner
 
 load_dotenv()  # Load environment variables
-
+build_id_store = {}
 router = APIRouter(prefix="/github")  # All routes here will start with /github
 
 
@@ -25,9 +26,21 @@ async def add_webhook(request: Request):
     Endpoint to create GitHub webhook using provided repo details
     """
     body = await request.json()
-    owner = body["owner"]
-    repo = body["repo"]
-    token = body["token"]
+    try:
+        owner = body["owner"]
+        repo = body["repo"]
+        build_id = body["build_id"]
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing field: {e.args[0]}")
+
+    build_id_store[(owner, repo)] = build_id
+    print(f"Stored build_id: {build_id} for {owner}/{repo}")
+
+    try:
+        token = get_access_token_for_owner(owner)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving token for {owner}: {e}")
+
     webhook_url = "https://overslack-stonily-allegra.ngrok-free.dev/github/webhook"  # Update with correct URL
 
     success, response_message = create_github_webhook(owner, repo, token, webhook_url)
@@ -61,8 +74,23 @@ async def github_webhook(request: Request):
 
     owner = repo_url.split("/")[3]
     repo = repo_url.split("/")[4].replace(".git", "")
+    event = request.headers.get("X-GitHub-Event")
+    print(f"GitHub event: {event}")
+
+    # Handle ping event (sent immediately after webhook creation)
+    if event == "ping":
+        print("Received ping event from GitHub — webhook setup successful.")
+        return {"message": "pong"}
+
+    # Only push events have a ref field
+    if "ref" not in payload:
+        print("No ref in payload — skipping.")
+        return {"message": "Ignored non-push event"}
     ref = payload["ref"].split("/")[-1]
 
+    build_id = build_id_store.get((owner, repo), None)
+    print(f"Retrieved build_id: {build_id} for {owner}/{repo}")
+    
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}"
     out_file = f"{repo}-{ref}.zip" 
     S3_BUCKET_NAME = "foundry-codebuild-zip"
@@ -86,7 +114,7 @@ async def github_webhook(request: Request):
 
     build_status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY, path, f"{owner}-{repo}")
     if build_status["build_status"] == "SUCCEEDED":
-        codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}")
+        codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}", tag=build_id)
         return {"message": "Build and deploy completed successfully"}
     else:
         return {"message": "Build failed, skipping deploy"}
