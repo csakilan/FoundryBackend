@@ -1,7 +1,6 @@
 import boto3
-import asyncio
 
-async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
+def codeDeploy(owner, repo, bucket_name, object_key,tag):
     """
     Deploys the latest build to EC2 using CodeDeploy.
     Automatically creates the application if it doesn't exist.
@@ -58,38 +57,7 @@ async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
             fileExistsBehavior='OVERWRITE'
         )
 
-        print("Deployment started:", type(response['deploymentId']))
-
-        deployment_identity= response['deploymentId']
-
-        print("deployment id",deployment_identity)
-
-        
-         
-
-
-        while True:
-
-            deploy_response = code_deploy.get_deployment(deploymentId=deployment_identity) 
-
-            deployment_info = deploy_response['deploymentInfo']
-
-            
-
-
-            status =  deployment_info['status']
-            
-            print("status",status)
-
-            await emit_func(tag,status)
-
-            if status in ["Succeeded", "Failed", "Stopped", "TimedOut"]:
-                break
-
-            await asyncio.sleep(2)
-
-            
-
+        print("Deployment started:", response['deploymentId'])
 
     except Exception as e:
         print(f"Failed to trigger CodeDeploy: {e}")

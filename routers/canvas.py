@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header,WebSocket,WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
@@ -545,54 +545,14 @@ async def get_repos(authorization: Optional[str] = Header(None)):
     ]
         return simplified
 
-#websocket connections
 
-
-sockets: dict[str, WebSocket] = {} #global dictionary 
-
-@router.websocket("/ws/{build_id}")
-async def ws_build(websocket: WebSocket, build_id: str):
-    
-    await websocket.accept()
-    sockets[build_id] = websocket
-
-  
-
-    try: 
-        while True:
-            data = await websocket.receive_text()
-           
-      
-           
-    except WebSocketDisconnect:
-        print(f"WebSocket disconnected for build_id {build_id}")
-        sockets.pop(build_id, None)
-
-   
-async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
-    websocket = sockets.get(build_id)
-
-    # await websocket.send_text(message)
-
-    if websocket:
-        await websocket.send_text(message)
-   
-    else:
-        print(f"No active websocket for build_id: {build_id}")
-
-#uncomment the rest of this
 @router.post("/builds")
 async def cicd(Data: dict):
-  
+    print('route reached')
 
     url = Data.get("repo")
 
     tag = Data.get("tag")
-
-    print("socccer",sockets)
-
-
-
 
     print("tag",tag)
 
@@ -611,7 +571,7 @@ async def cicd(Data: dict):
 
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
 
-  
+    print(zip_url)
 
 
     out_file = f"{repo}-{ref}.zip"
@@ -644,14 +604,14 @@ async def cicd(Data: dict):
 
     
     upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-   
+    time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
 
-    status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}",emit,tag)
+    status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
 
     print(status)
 
     if(status['build_status'] == 'SUCCEEDED'):
-        await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
+        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
         print("hello world")
     
 
