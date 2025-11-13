@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import httpx
 from database import save_build, log_activity, get_build, update_build_canvas_and_template, get_builds_by_owner
-
+import boto3
 from CICD.addYamlZip import addAppSpec, addBuildSpec, fastapi_appspec_template,fastapi_buildspec_template
 from CICD.upload_s3 import upload_to_s3
 import time
@@ -513,6 +513,8 @@ def get_builds(id: str):
   
     try:
         builds = get_builds_by_owner(owner_id=int(id))
+
+
         
         
         return {"builds": builds}
@@ -652,7 +654,21 @@ async def cicd(Data: dict):
 
     if(status['build_status'] == 'SUCCEEDED'):
         await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
-        print("hello world")
+        ec2_details = boto3.client('ec2', region_name='us-east-1')
+
+
+        ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
+        
+        print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
+
+
+        return {"ec2_address": ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}   
+        
+        
+       
+    
+
+    
     
 
 @router.get("/users")
@@ -715,6 +731,7 @@ async def settings(data: dict):
     except Exception as e: 
 
         print("failed to save",e)
+
 
 @router.post("/invite")
 async def send_invites(data: dict): 
@@ -818,3 +835,47 @@ async def accept_invite(data:dict):
     except Exception as e:
 
         print("error",e)
+
+
+@router.post("/deployments")
+async def deployment(data:dict): 
+
+
+    print("data",data)
+
+    try:
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+        update = await database.execute("UPDATE build SET status = $1 WHERE id = $2", True, int(data.get("build_id"))) 
+
+
+    
+    except Exception as e:
+        print("error",e)
+
+
+@router.get("/settings")
+async def get_settings(build_id: str):
+
+    try: 
+
+        database = os.getenv("DATABASE_URL")
+
+
+        connect = await asyncpg.connect(database)
+
+        response = await connect.fetch("SELECT * FROM build WHERE id = $1", int(build_id))
+
+        print("response",response)
+
+
+        return [dict(row) for row in response]
+
+
+
+    
+    except Exception as e: 
+        print("error",e)
+
+

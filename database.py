@@ -186,7 +186,7 @@ def get_builds_by_owner(owner_id: int) -> list:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
-            SELECT id, owner_id, canvas, cf_template, created_at,project_name,description
+            SELECT id, owner_id, canvas, cf_template, created_at,project_name,description,status
             FROM build
             WHERE owner_id = %s
             ORDER BY created_at DESC
