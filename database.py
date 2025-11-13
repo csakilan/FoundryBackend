@@ -4,6 +4,7 @@ Database connection and operations for RDS PostgreSQL.
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from typing import Dict, Any, Optional
+from fastapi import HTTPException
 import os
 import random
 from contextlib import contextmanager
@@ -234,6 +235,30 @@ def log_activity(build_id: int, user_id: int, change: str):
             (build_id, user_id, change)
         )
         print(f"✓ Activity logged for build {build_id}")
+def get_access_token_for_owner(owner_username: str) -> str:
+   """
+   Retrieves the GitHub access token from the dedicated encrypted column.
+   """
+   token = None
+   with get_db_connection() as conn:
+       cursor = conn.cursor()
+       # Select ONLY the access token
+       cursor.execute(
+           """
+           SELECT github_access_token
+           FROM account
+           WHERE github_login = %s
+           """,
+           (owner_username,)
+       )
+       result = cursor.fetchone()
+       if result:
+           # Result is (token_string,), so we take the first element
+           token = result[0]
+      
+   if not token:
+       raise HTTPException(status_code=404, detail=f"Token not found for user '{owner_username}'.")
+   return token
 
 
 if __name__ == "__main__":

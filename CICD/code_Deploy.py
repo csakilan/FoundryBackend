@@ -7,6 +7,8 @@ async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
     Automatically creates the application if it doesn't exist.
     """
 
+    print("tag",tag)
+
     code_deploy = boto3.client("codedeploy", region_name="us-east-1")
     application_name = f"{owner}-{repo}"
     deployment_group_name = repo
