@@ -6,7 +6,7 @@ from .singleServiceCreator import (
     create_ec2_s3_role, create_ec2_dynamodb_role, create_ec2_multi_service_role
 )
 
-def make_stack_template(normalized: dict, build_id: str = None) -> Template:
+def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict = None) -> Template:
     t = Template()
     t.set_version("2010-09-09")  # AWSTemplateFormatVersion
     t.set_description("Foundry v1 - Single stack for EC2/S3/RDS/DynamoDB")
@@ -209,12 +209,20 @@ def make_stack_template(normalized: dict, build_id: str = None) -> Template:
                     environment_variables[f"{prefix}ENGINE"] = rds_ref["engine"]
         
         # Create EC2 instance with IAM profile and environment variables
+        # Get key pair name for this instance if available
+        instance_key_name = None
+        if key_pairs:
+            instance_name = node.get('data', {}).get('name', '')
+            if instance_name in key_pairs:
+                instance_key_name = key_pairs[instance_name].get('keyName')
+        
         EC2_creation.add_ec2_instance(
             t, node, subnet_param, sg_param,
             logical_id=logical_id,
             instance_profile=instance_profile,
             environment_variables=environment_variables if environment_variables else None,
-            build_id=build_id
+            build_id=build_id,
+            key_name=instance_key_name
         )
 
     return t

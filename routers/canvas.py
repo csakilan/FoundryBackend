@@ -23,6 +23,9 @@ from datetime import datetime
 
 import random
 
+# Import deployment tracking
+from CFCreators.deploymentModal.websocket_handler import deployment_ws_manager
+
 router = APIRouter(prefix="/canvas")
 builds = APIRouter(prefix="/builds")
 
@@ -146,6 +149,7 @@ def deploy_initiate(request: DeployRequest):
                 "region": result['region'],
                 "status": result['status'],
                 "outputs": result.get('outputs', []),
+                "keyPairs": result.get('keyPairs', {}),  # SSH key pairs for EC2 instances
                 "buildId": build_id,  # camelCase for JavaScript convention
                 "build_id": build_id  # snake_case for Python convention (redundant but ensures compatibility)
             }
@@ -878,4 +882,57 @@ async def get_settings(build_id: str):
     except Exception as e: 
         print("error",e)
 
+
+@router.websocket("/deploy/track/{stack_name}")
+async def track_deployment(websocket: WebSocket, stack_name: str, region: str = 'us-east-1'):
+    """
+    WebSocket endpoint for real-time CloudFormation deployment tracking.
+    
+    Streams live updates as AWS resources are created/updated/deleted.
+    
+    Args:
+        websocket: WebSocket connection
+        stack_name: CloudFormation stack name to track
+        region: AWS region (default: us-east-1)
+        
+    WebSocket Message Format:
+        {
+            "type": "resource_update" | "stack_complete" | "error" | "initial_state",
+            "timestamp": "2025-11-13T10:30:45Z",
+            "resource": {
+                "logicalId": "MyEC2Instance",
+                "type": "AWS::EC2::Instance",
+                "status": "CREATE_IN_PROGRESS",
+                "statusReason": "",
+                "physicalId": "i-1234567890abcdef",
+                "progress": 66
+            },
+            "stack": {
+                "name": "build-12345678",
+                "status": "CREATE_IN_PROGRESS",
+                "totalResources": 5,
+                "completedResources": 3,
+                "inProgressResources": 1,
+                "failedResources": 0,
+                "progress": 60
+            }
+        }
+    """
+    await deployment_ws_manager.connect(websocket, stack_name, region)
+    
+    try:
+        # Keep connection alive and handle any incoming messages
+        while True:
+            # Wait for messages from client (e.g., ping to keep alive)
+            try:
+                data = await websocket.receive_text()
+                # Echo back to acknowledge (optional)
+                # Can handle client commands here if needed
+            except WebSocketDisconnect:
+                break
+            
+    except Exception as e:
+        print(f"WebSocket error for {stack_name}: {e}")
+    finally:
+        deployment_ws_manager.disconnect(websocket, stack_name)
 
