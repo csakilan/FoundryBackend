@@ -1,6 +1,7 @@
 # SSH Key Pair Management for EC2 Instances
 
 ## Overview
+
 The system **automatically creates unique SSH key pairs** for each EC2 instance during deployment. Private keys are returned to the frontend for secure download.
 
 ## ⚠️ CRITICAL SECURITY NOTES
@@ -60,9 +61,9 @@ Example: `build-12345678-abc123-webserver-key`
 
 ```javascript
 // After successful deployment
-const response = await fetch('/canvas/deploy', {
-  method: 'POST',
-  body: JSON.stringify({ buildId, canvas, owner_id, region })
+const response = await fetch("/canvas/deploy", {
+  method: "POST",
+  body: JSON.stringify({ buildId, canvas, owner_id, region }),
 });
 
 const result = await response.json();
@@ -82,18 +83,18 @@ if (result.success && result.keyPairs) {
 ```javascript
 function downloadPrivateKey(instanceName, privateKey, keyName) {
   // Create blob from private key
-  const blob = new Blob([privateKey], { type: 'text/plain' });
-  
+  const blob = new Blob([privateKey], { type: "text/plain" });
+
   // Create download link
   const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = `${keyName}.pem`;  // Save as .pem file
-  
+  a.download = `${keyName}.pem`; // Save as .pem file
+
   // Trigger download
   document.body.appendChild(a);
   a.click();
-  
+
   // Cleanup
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
@@ -108,7 +109,7 @@ showKeyPairModal({
   title: "SSH Keys Created",
   message: "Private keys have been generated. Download and save them securely!",
   keyPairs: result.keyPairs,
-  warning: "These keys cannot be retrieved later. Store them safely!"
+  warning: "These keys cannot be retrieved later. Store them safely!",
 });
 ```
 
@@ -117,12 +118,12 @@ showKeyPairModal({
 ```jsx
 <Modal open={showKeyModal}>
   <h2>🔑 SSH Key Pairs Created</h2>
-  
+
   <Alert severity="warning">
-    <strong>Important:</strong> Private keys are only shown once. 
-    Download and save them securely now!
+    <strong>Important:</strong> Private keys are only shown once. Download and
+    save them securely now!
   </Alert>
-  
+
   <List>
     {Object.entries(keyPairs).map(([instance, keyInfo]) => (
       <ListItem key={instance}>
@@ -130,8 +131,8 @@ showKeyPairModal({
           primary={`${instance} (${keyInfo.keyName})`}
           secondary={`Fingerprint: ${keyInfo.keyFingerprint}`}
         />
-        <Button 
-          variant="contained" 
+        <Button
+          variant="contained"
           onClick={() => downloadKey(instance, keyInfo)}
         >
           Download {instance}.pem
@@ -139,11 +140,14 @@ showKeyPairModal({
       </ListItem>
     ))}
   </List>
-  
+
   <Alert severity="info">
     <strong>How to use:</strong>
-    <code>chmod 400 {keyName}.pem</code><br/>
-    <code>ssh -i {keyName}.pem ubuntu@{ec2_public_ip}</code>
+    <code>chmod 400 {keyName}.pem</code>
+    <br />
+    <code>
+      ssh -i {keyName}.pem ubuntu@{ec2_public_ip}
+    </code>
   </Alert>
 </Modal>
 ```
@@ -167,6 +171,7 @@ ssh -i build-12345678-abc123-webserver-key.pem ec2-user@<EC2_PUBLIC_IP>
 ```
 
 ### 3. Default Users by AMI
+
 - **Amazon Linux**: `ec2-user`
 - **Ubuntu**: `ubuntu`
 - **Windows**: Use RDP with `.pem` for password retrieval
@@ -174,6 +179,7 @@ ssh -i build-12345678-abc123-webserver-key.pem ec2-user@<EC2_PUBLIC_IP>
 ## Security Best Practices
 
 ### ✅ DO:
+
 - Download private keys immediately after deployment
 - Store keys in a secure password manager or encrypted storage
 - Set proper file permissions (`chmod 400`) on Linux/Mac
@@ -181,6 +187,7 @@ ssh -i build-12345678-abc123-webserver-key.pem ec2-user@<EC2_PUBLIC_IP>
 - Rotate keys periodically
 
 ### ❌ DON'T:
+
 - Commit private keys to git repositories
 - Share private keys via email or messaging
 - Store keys in plain text on shared drives
@@ -190,6 +197,7 @@ ssh -i build-12345678-abc123-webserver-key.pem ec2-user@<EC2_PUBLIC_IP>
 ## Key Pair Cleanup
 
 Keys are automatically cleaned up when:
+
 1. CloudFormation stack is deleted
 2. Manual cleanup via key pair manager
 
@@ -204,17 +212,22 @@ print(f"Deleted {deleted_count} key pairs")
 ## Troubleshooting
 
 ### Problem: "Permission denied (publickey)"
+
 **Solution**: Check file permissions and username
+
 ```bash
 chmod 400 key.pem
 ssh -i key.pem ubuntu@<IP>  # Try 'ec2-user' if Ubuntu doesn't work
 ```
 
 ### Problem: Key pair already exists
+
 **Solution**: The system will skip creation and return existing key info (without private key)
 
 ### Problem: Lost private key
+
 **Solution**: Cannot be recovered. Options:
+
 1. Create new EC2 instance with new key pair
 2. Use AWS Systems Manager Session Manager (no keys needed)
 3. Create AMI, launch new instance with new key
@@ -224,12 +237,14 @@ ssh -i key.pem ubuntu@<IP>  # Try 'ec2-user' if Ubuntu doesn't work
 **Private keys are NOT stored in the database** for security reasons.
 
 What IS stored:
+
 - Build ID
 - Canvas data
 - CloudFormation template
 - Deployment metadata
 
 What is NOT stored:
+
 - Private keys (`keyMaterial`)
 - Key fingerprints
 - Sensitive credentials
@@ -237,6 +252,7 @@ What is NOT stored:
 ## API Endpoints
 
 ### Deploy with Key Pair Creation
+
 ```
 POST /canvas/deploy
 {
@@ -250,6 +266,7 @@ Response includes: keyPairs object with private keys
 ```
 
 ### WebSocket Deployment Tracking
+
 ```
 WS /canvas/deploy/track/{stack_name}
 

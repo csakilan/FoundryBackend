@@ -161,7 +161,8 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
             'region': region,
             'status': status_info['status'],
             'outputs': status_info.get('outputs', []),
-            'keyPairs': key_pairs,  # Include key pair information
+            'keyPairs': key_pairs,  # Include key pair information with private keys
+            'keyPairNames': [key_info['keyName'] for key_info in key_pairs.values()],  # Just the names for storage
             'message': 'Deployment initiated successfully'
         }
         
@@ -232,3 +233,66 @@ def getStackStatus(stack_name: str, region: str = 'us-east-1'):
             'error': str(e)
         }
 
+
+def deleteStack(stack_name: str, region: str = 'us-east-1', cleanup_key_pairs: bool = True):
+    """
+    Delete a CloudFormation stack and optionally clean up associated key pairs.
+    
+    Args:
+        stack_name: Name of the CloudFormation stack to delete
+        region: AWS region (default: us-east-1)
+        cleanup_key_pairs: Whether to delete SSH key pairs (default: True)
+        
+    Returns:
+        Dictionary with deletion result:
+        {
+            'success': bool,
+            'stackName': str,
+            'message': str,
+            'keyPairsDeleted': int (if cleanup_key_pairs=True)
+        }
+    """
+    try:
+        print("=" * 80)
+        print("DELETING CLOUDFORMATION STACK")
+        print("=" * 80)
+        print(f"Stack Name: {stack_name}")
+        print(f"Region: {region}")
+        print(f"Cleanup Key Pairs: {cleanup_key_pairs}")
+        
+        # Step 1: Delete CloudFormation stack
+        print(f"\n[1/2] Deleting CloudFormation stack '{stack_name}'...")
+        deployer = CloudFormationDeployer(region=region)
+        deployer.cf_client.delete_stack(StackName=stack_name)
+        print(f"✓ Stack deletion initiated")
+        
+        # Step 2: Delete associated key pairs
+        key_pairs_deleted = 0
+        if cleanup_key_pairs:
+            print(f"\n[2/2] Cleaning up SSH key pairs...")
+            from .key_pair_manager import cleanup_key_pairs_for_stack
+            key_pairs_deleted = cleanup_key_pairs_for_stack(stack_name, region)
+            print(f"✓ Deleted {key_pairs_deleted} key pair(s)")
+        else:
+            print(f"\n[2/2] Skipping key pair cleanup (as requested)")
+        
+        print("\n" + "=" * 80)
+        print("✓ STACK DELETION INITIATED")
+        print("=" * 80)
+        
+        return {
+            'success': True,
+            'stackName': stack_name,
+            'message': f'Stack deletion initiated. {key_pairs_deleted} key pairs deleted.',
+            'keyPairsDeleted': key_pairs_deleted
+        }
+        
+    except Exception as e:
+        error_msg = f"Error deleting stack: {str(e)}"
+        print(f"\n✗ {error_msg}")
+        return {
+            'success': False,
+            'stackName': stack_name,
+            'message': error_msg,
+            'error': str(e)
+        }

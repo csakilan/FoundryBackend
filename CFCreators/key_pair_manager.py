@@ -206,9 +206,39 @@ def create_key_pairs_for_deployment(canvas_data: dict, build_id: str, region: st
     return key_pairs
 
 
+def cleanup_key_pairs_by_names(key_names: list, region: str = 'us-east-1') -> Dict[str, bool]:
+    """
+    Delete specific key pairs by name.
+    
+    Args:
+        key_names: List of key pair names to delete
+        region: AWS region
+        
+    Returns:
+        Dictionary mapping key names to deletion success status
+    """
+    manager = KeyPairManager(region)
+    results = {}
+    
+    for key_name in key_names:
+        try:
+            if manager.delete_key_pair(key_name):
+                results[key_name] = True
+                print(f"  ✓ Deleted key pair: {key_name}")
+            else:
+                results[key_name] = False
+                print(f"  ✗ Failed to delete key pair: {key_name}")
+        except Exception as e:
+            results[key_name] = False
+            print(f"  ✗ Error deleting {key_name}: {e}")
+    
+    return results
+
+
 def cleanup_key_pairs_for_stack(stack_name: str, region: str = 'us-east-1') -> int:
     """
     Clean up key pairs associated with a CloudFormation stack.
+    Uses pattern matching to find all key pairs belonging to the stack.
     
     Args:
         stack_name: CloudFormation stack name

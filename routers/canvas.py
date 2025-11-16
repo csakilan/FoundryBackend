@@ -46,6 +46,15 @@ class UpdateRequest(BaseModel):
     auto_execute: bool = False  # If True, automatically execute the change set
 
 
+class DeleteRequest(BaseModel):
+    stack_name: str  # CloudFormation stack name to delete
+    build_id: Optional[int] = None  # Optional build ID for database updates
+    owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
+    region: str = 'us-east-1'  # AWS region
+    cleanup_key_pairs: bool = True  # Whether to delete SSH key pairs
+    auto_execute: bool = False  # If True, automatically execute the change set
+
+
 @router.get('/health')
 def get_health():
     return "this shi working dawg"
@@ -936,3 +945,72 @@ async def track_deployment(websocket: WebSocket, stack_name: str, region: str = 
     finally:
         deployment_ws_manager.disconnect(websocket, stack_name)
 
+
+@router.post('/deploy/delete')
+def delete_stack(request: DeleteRequest):
+    """
+    Delete a CloudFormation stack and clean up associated resources (including SSH key pairs).
+    
+    Args:
+        request: DeleteRequest containing:
+            - stack_name: CloudFormation stack name to delete (REQUIRED)
+            - build_id: Optional build ID for database updates
+            - owner_id: User ID (default: 1)
+            - region: AWS region (default: us-east-1)
+            - cleanup_key_pairs: Whether to delete SSH key pairs (default: True)
+        
+    Returns:
+        Deletion result with number of key pairs deleted
+    """
+    print("=" * 80)
+    print("DELETE STACK REQUEST RECEIVED")
+    print("=" * 80)
+    print(f"Stack Name: {request.stack_name}")
+    print(f"Build ID: {request.build_id}")
+    print(f"Region: {request.region}")
+    print(f"Cleanup Key Pairs: {request.cleanup_key_pairs}")
+    
+    try:
+        # Delete stack and key pairs
+        result = CFCreator.deleteStack(
+            stack_name=request.stack_name,
+            region=request.region,
+            cleanup_key_pairs=request.cleanup_key_pairs
+        )
+        
+        if result['success']:
+            print(f"\n✓ Stack deletion initiated!")
+            
+            # Update database activity log if build_id provided
+            if request.build_id:
+                try:
+                    print(f"\nLogging deletion activity...")
+                    log_activity(
+                        build_id=request.build_id,
+                        user_id=request.owner_id,
+                        change=f"Deleted stack: {request.stack_name} in {request.region}. Key pairs deleted: {result.get('keyPairsDeleted', 0)}"
+                    )
+                    print("✓ Activity logged")
+                except Exception as log_error:
+                    print(f"⚠ Warning: Failed to log activity: {str(log_error)}")
+            
+            return {
+                "success": True,
+                "message": result['message'],
+                "stackName": result['stackName'],
+                "keyPairsDeleted": result.get('keyPairsDeleted', 0),
+                "region": request.region
+            }
+        else:
+            print(f"\n✗ Deletion failed: {result.get('message')}")
+            raise HTTPException(
+                status_code=500,
+                detail=result.get('message', 'Stack deletion failed')
+            )
+            
+    except Exception as e:
+        print(f"\n✗ Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Deletion error: {str(e)}"
+        )
