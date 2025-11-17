@@ -604,10 +604,12 @@ async def cicd(Data: dict):
 
     tag = Data.get("tag")
 
+    name = Data.get("name")
+
     print("socccer",sockets)
 
 
-
+    print("build data",Data)
 
     print("tag",tag)
 
@@ -675,7 +677,34 @@ async def cicd(Data: dict):
         print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
 
 
-        return {"ec2_address": ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}   
+        try:
+
+            database = os.getenv("DATABASE_URL")
+
+            connect = await asyncpg.connect(database)
+
+            public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
+
+  
+            endpoint =  f"http://{public_ip}:8000"
+               
+
+            update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
+
+
+            print("update",update)  
+
+
+
+            
+            
+            return {"ec2_address": f"http:{ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}:8000"}    
+
+    
+        except Exception as e:
+            print("failed to fetch ec2 details",e)
+
+
         
         
        
@@ -1014,3 +1043,30 @@ def delete_stack(request: DeleteRequest):
             status_code=500,
             detail=f"Deletion error: {str(e)}"
         )
+
+
+
+@router.get('/endpoint/')
+async def endpoint(build_id: str):
+
+
+    print("id",type(build_id))
+
+    try:
+
+        database = os.getenv("DATABASE_URL")
+
+        connect = await asyncpg.connect(database)
+
+        response = await connect.fetch("SELECT endpoint FROM build WHERE id = $1", int(build_id))
+
+        print("response",response)
+
+
+        return [dict(row) for row in response]
+
+
+
+    
+    except Exception as e: 
+        print("error",e)    
