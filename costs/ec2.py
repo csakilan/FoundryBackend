@@ -62,5 +62,7 @@ def ec2_price(build_id):
 
     print("cpu",final_price)
 
+    return final_price
 
-ec2_price(build_id="82622067")
+
+# ec2_price(build_id="82622067")

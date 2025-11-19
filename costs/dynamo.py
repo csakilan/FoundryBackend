@@ -51,8 +51,8 @@ def dynamoCost(build_id):
         else:
             read_sum = 0
         
-        cost = (read_sum / 1_000_000) * 0.25
-        read_count.append(f"{cost:.8f}")
+        read_count.append((read_sum / 1_000_000) * 0.25)
+
 
 
         writes = cloud.get_metric_statistics(
@@ -81,13 +81,16 @@ def dynamoCost(build_id):
     print("read_units", read_count)
     print("write_units", write_count)
 
+
+    final_cost = storage_cost + sum(read_count) + sum(write_count)
     
     
     
     return {
         "storage_cost": storage_cost,
-        "read_units": read_count,
-        "write_units": write_count,
+        "read_units": sum(read_count),
+        "write_units": sum(write_count),
+        "final_cost": final_cost
     }
 
 

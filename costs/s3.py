@@ -1,69 +1,82 @@
 import boto3
-import asyncio
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 
 def get_price(build_id):
-
-
-  
-
     resources = boto3.client("resourcegroupstaggingapi")
 
-   
-    response = resources.get_resources(TagFilters=[
+    response = resources.get_resources(
+        TagFilters=[
             {
-                'Key': 'aws:cloudformation:stack-name',
-                'Values': [f"foundry-stack-{build_id}"]
+                "Key": "aws:cloudformation:stack-name",
+                "Values": [f"foundry-stack-{build_id}"],
             }
-        ])
+        ],
+        ResourceTypeFilters=["s3"]
+    )
 
-    # print("response",response)
-        
-    s3 = []
-    for res in response['ResourceTagMappingList']:
-        if 's3' in res['ResourceARN']:
-            s3.append(res['ResourceARN'])
+    bucket_names = []
+    for res in response.get("ResourceTagMappingList", []):
+        arn = res["ResourceARN"]
+        if ":s3:::" in arn:
+            bucket_name = arn.split(":::")[1]
+            bucket_names.append(bucket_name)
+    # print("bucket_names",bucket_names)
+    if not bucket_names:
+        return 0.0
+
+    cloud = boto3.client("cloudwatch", region_name="us-east-1")
+
+    end = datetime.utcnow()
+    start = end - timedelta(days=30)
+
+    metric_queries = []
+    for idx, bucket_name in enumerate(bucket_names):
+        metric_queries.append(
+            {
+                "Id": f"b{idx}",
+                "MetricStat": {
+                    "Metric": {
+                        "Namespace": "AWS/S3",
+                        "MetricName": "BucketSizeBytes",
+                        "Dimensions": [
+                            {"Name": "BucketName", "Value": "foundry-artifacts-bucket"}, #hardcoded for now 
+                            {"Name": "StorageType", "Value": "StandardStorage"},
+                        ],
+                    },
+                    "Period": 86400,  
+                    "Stat": "Average",
+                },
+                "ReturnData": True,
+            }
+        )
+
+    result = cloud.get_metric_data(
+        MetricDataQueries=metric_queries,
+        StartTime=start,
+        EndTime=end,
+        ScanBy="TimestampDescending",  
+    )
+
+    total_gb = 0.0
+
+    for metric in result.get("MetricDataResults", []):
+        values = metric.get("Values", [])
+        if not values:
+            continue
+        latest_bytes = values[0]          
+        total_gb += latest_bytes / (1024 * 1024 * 1024)
+
+    total_cost = total_gb * 0.023  
+
+    # print("total_cost", total_cost)
+    return total_cost
+
+    
+
     
 
 
-    total_bytes = []
-
-    for bucket in s3: 
-        bucket_name = bucket.split(":::")[1] 
-
-        cloud = boto3.client('cloudwatch',region_name='us-east-1')
-
-        s3_bytes = cloud.get_metric_statistics(
-            Namespace='AWS/S3', 
-            MetricName='BucketSizeBytes',
-            Dimensions=[
-                {'Name': 'BucketName', 'Value': 'foundry-codebuild-zip' },#hardcoded for now
-                {'Name': 'StorageType', 'Value': 'StandardStorage'}
-            ],
-            StartTime=datetime.utcnow() - timedelta(days=30),
-            EndTime=datetime.utcnow(),
-            Period=86400,
-            Statistics=['Average']
-
-        ) 
-
-        # print("s3_info",s3_bytes['Datapoints'][0]['Average'])
-
-        total_bytes.append(s3_bytes['Datapoints'][0]['Average']/ (1024*1024*1024))
-
-
-    total_gb = sum(total_bytes) * 0.023
-
-    print("total_gb",total_gb)
-
-
-    return total_gb
-    
-
-    
-
-
-get_price(build_id="82622067")
+# get_price(build_id="82622067")
 
        
 

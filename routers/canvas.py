@@ -23,8 +23,17 @@ from datetime import datetime
 
 import random
 
+from logs.logs import ec2_log
+
+from costs.s3 import get_price
+from costs.ec2 import ec2_price
+from costs.dynamo   import dynamoCost
 # Import deployment tracking
 from CFCreators.deploymentModal.websocket_handler import deployment_ws_manager
+
+
+
+
 
 router = APIRouter(prefix="/canvas")
 builds = APIRouter(prefix="/builds")
@@ -764,7 +773,7 @@ async def settings(data: dict):
         database = await asyncpg.connect(os.getenv("DATABASE_URL"))
 
 
-        result = await database.execute("UPDATE newbuilds SET project_name = $1, description = $2 WHERE build_id = $3", project, description,id)
+        result = await database.execute("UPDATE build SET project_name = $1 WHERE id = $2", project,int(id))
 
         print("result",result)
 
@@ -832,7 +841,7 @@ async def get_invite_info(id: str):
         print("error",e)
     
     
-    print("hello world")
+    # print("hello world")
 
 
 @builds.post("/invitations/decline")
@@ -1050,6 +1059,9 @@ def delete_stack(request: DeleteRequest):
 async def endpoint(build_id: str):
 
 
+
+
+
     print("id",type(build_id))
 
     try:
@@ -1070,3 +1082,73 @@ async def endpoint(build_id: str):
     
     except Exception as e: 
         print("error",e)    
+
+@router.get('/costs')
+def get_costs(build_id: str):
+
+    
+
+#     print("build_id",build_id)
+    
+    s3_price =  get_price(build_id)
+
+
+
+
+    
+#left off here 
+    ec2_cost = ec2_price(build_id)
+
+
+    return {'s3': s3_price,'ec2': ec2_cost}
+
+#     ec2_services =ec2_price(build_id)
+
+#     # ec2_cost = 0
+#     # for service in ec2_services:
+#     #     ec2_cost += service['price']
+        
+
+
+
+
+#     dynamo_price = dynamoCost(build_id)
+
+#     pricing = { 
+#     's3': s3_price,
+#     'ec2': ec2_services,
+#     'dynamo': dynamo_price,
+
+# }
+#     print("pricing",pricing)
+
+
+
+
+#     return {"data":pricing}  
+
+
+@router.get('/logs')
+def logs(build_id:str):
+
+    logs = ec2_log(build_id)
+
+
+    if logs is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No logs found for build_id {build_id}"
+        )
+        return
+  
+    
+   
+
+    return {"logs":logs}
+
+
+    
+
+
+
+   
