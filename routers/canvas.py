@@ -593,125 +593,125 @@ async def ws_build(websocket: WebSocket, build_id: str):
         sockets.pop(build_id, None)
 
    
-async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
-    websocket = sockets.get(build_id)
+# async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
+#     websocket = sockets.get(build_id)
 
-    # await websocket.send_text(message)
+#     # await websocket.send_text(message)
 
-    if websocket:
-        await websocket.send_text(message)
+#     if websocket:
+#         await websocket.send_text(message)
    
-    else:
-        print(f"No active websocket for build_id: {build_id}")
+#     else:
+#         print(f"No active websocket for build_id: {build_id}")
 
 #uncomment the rest of this
-@router.post("/builds")
-async def cicd(Data: dict):
+# @router.post("/builds")
+# async def cicd(Data: dict):
   
 
-    url = Data.get("repo")
+#     url = Data.get("repo")
 
-    tag = Data.get("tag")
+#     # tag = Data.get("tag")
 
-    name = Data.get("name")
+#     # name = Data.get("name")
 
-    print("socccer",sockets)
-
-
-    print("build data",Data)
-
-    print("tag",tag)
+#     # print("socccer",sockets)
 
 
+#     # print("build data",Data)
+
+#     # print("tag",tag)
 
 
-    print("url",url)
-
-    owner = url.split("/")[1]
-    repo = url.split("/")[0]
-
-    print(owner,repo)
 
 
-    ref = "main"
+#     # print("url",url)
 
-    zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
+#     # owner = url.split("/")[1]
+#     # repo = url.split("/")[0]
+
+#     # print(owner,repo)
+
+
+#     # ref = "main"
+
+#     # zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
 
   
 
 
-    out_file = f"{repo}-{ref}.zip"
+#     # out_file = f"{repo}-{ref}.zip"
 
-    headers = {"user":"test"}
+#     # headers = {"user":"test"}
 
-    response = requests.get(zip_url, headers=headers,allow_redirects=True)  #make the request to download the zip file
+#     # response = requests.get(zip_url, headers=headers,allow_redirects=True)  #make the request to download the zip file
 
-    S3_BUCKET_NAME = "foundry-codebuild-zip"
-
-
-
-    S3_KEY = f"{owner}/{out_file}"  # the path for the file in the s3 bucket
-
-    print(S3_KEY)
+#     # S3_BUCKET_NAME = "foundry-codebuild-zip"
 
 
-    if response.status_code == 200: 
-        with open(out_file, "wb") as file:
-            file.write(response.content)  #write the content to a file
-        print(f"Downloaded {out_file} successfully.")
-        path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
-        addAppSpec(out_file,fastapi_appspec_template, overWrite=True)
-        addStopScript(out_file, stop_sh_template, overWrite=True)
-        addInstallScript(out_file, install_sh_template, overWrite=True)
-        addStartScript(out_file, start_sh_template, overWrite=True)
+
+#     # S3_KEY = f"{owner}/{out_file}"  # the path for the file in the s3 bucket
+
+#     # print(S3_KEY)
+
+
+#     # if response.status_code == 200: 
+#     #     with open(out_file, "wb") as file:
+#     #         file.write(response.content)  #write the content to a file
+#     #     print(f"Downloaded {out_file} successfully.")
+#     #     path = addBuildSpec(out_file, fastapi_buildspec_template, overWrite=True)
+#     #     addAppSpec(out_file,fastapi_appspec_template, overWrite=True)
+#     #     addStopScript(out_file, stop_sh_template, overWrite=True)
+#     #     addInstallScript(out_file, install_sh_template, overWrite=True)
+#     #     addStartScript(out_file, start_sh_template, overWrite=True)
        
-    else: 
-        print(f"Failed to download file: {response.status_code} - {response.text}")
+#     # else: 
+#     #     print(f"Failed to download file: {response.status_code} - {response.text}")
 
     
-    upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
+#     # upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
    
 
-    status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}",emit,tag)
+#     # status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}",emit,tag)
 
-    print(status)
+#     # print(status)
 
-    if(status['build_status'] == 'SUCCEEDED'):
-        await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
-        ec2_details = boto3.client('ec2', region_name='us-east-1')
+#     # if(status['build_status'] == 'SUCCEEDED'):
+#     #     await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
+#     #     ec2_details = boto3.client('ec2', region_name='us-east-1')
 
 
-        ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
+#     #     ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
         
-        print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
+#     #     print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
 
 
-        try:
+#     #     try:
 
-            database = os.getenv("DATABASE_URL")
+#     #         database = os.getenv("DATABASE_URL")
 
-            connect = await asyncpg.connect(database)
+#     #         connect = await asyncpg.connect(database)
 
-            public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
+#     #         public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
   
-            endpoint =  f"http://{public_ip}:8000"
+#     #         endpoint =  f"http://{public_ip}:8000"
                
 
-            update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
+#     #         update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
 
 
-            print("update",update)  
+#     #         print("update",update)  
 
 
 
             
             
-            return {"ec2_address": f"http:{ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}:8000"}    
+#     #         return {"ec2_address": f"http:{ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}:8000"}    
 
     
-        except Exception as e:
-            print("failed to fetch ec2 details",e)
+#     #     except Exception as e:
+#     #         print("failed to fetch ec2 details",e)
 
 
         

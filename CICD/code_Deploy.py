@@ -1,11 +1,8 @@
 import boto3
 import asyncio
 
-async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
-    """
-    Deploys the latest build to EC2 using CodeDeploy.
-    Automatically creates the application if it doesn't exist.
-    """
+async def codeDeploy(owner, repo, bucket_name, object_key,tag):
+   
 
     print("tag",tag)
 
@@ -83,7 +80,7 @@ async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
             
             print("status",status)
 
-            await emit_func(tag,status)
+            
 
             if status in ["Succeeded", "Failed", "Stopped", "TimedOut"]:
                 break
