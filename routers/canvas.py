@@ -27,7 +27,7 @@ from logs.logs import ec2_log
 
 from costs.s3 import get_price
 from costs.ec2 import ec2_price
-from costs.dynamo   import dynamoCost
+# from costs.dynamo   import dynamoCost
 # Import deployment tracking
 from CFCreators.deploymentModal.websocket_handler import deployment_ws_manager
 
@@ -1090,15 +1090,31 @@ def get_costs(build_id: str):
 
 #     print("build_id",build_id)
     
-    s3_price =  get_price(build_id)
+    s3_price = get_price(build_id)
 
 
-
+    print("s3 innnn",s3_price)
 
     
 #left off here 
     ec2_cost = ec2_price(build_id)
 
+    print("ec2 cost",ec2_cost)
+
+    # for service in ec2_cost:
+    #     if service['t3.micro'] == 0
+
+    
+    
+    # print("ec2 innnn",ec2_cost)
+
+    # ec2_vals = []
+    # # for instance_type in ec2_cost:
+    # #     if ec2_cost[instance_type] != 0:
+    # #         ec2_vals.append({instance_type: ec2_cost[instance_type]})
+            
+
+    # print("ec2 vals",ec2_vals)
 
     return {'s3': s3_price,'ec2': ec2_cost}
 

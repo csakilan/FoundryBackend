@@ -39,7 +39,7 @@ def get_price(build_id):
                         "Namespace": "AWS/S3",
                         "MetricName": "BucketSizeBytes",
                         "Dimensions": [
-                            {"Name": "BucketName", "Value": "foundry-artifacts-bucket"}, #hardcoded for now 
+                            {"Name": "BucketName", "Value": bucket_name }, 
                             {"Name": "StorageType", "Value": "StandardStorage"},
                         ],
                     },
@@ -61,9 +61,12 @@ def get_price(build_id):
 
     for metric in result.get("MetricDataResults", []):
         values = metric.get("Values", [])
+
+        print("values",values)
         if not values:
             continue
-        latest_bytes = values[0]          
+        latest_bytes = values[0]   
+        print("latest_bytes", latest_bytes)       
         total_gb += latest_bytes / (1024 * 1024 * 1024)
 
     total_cost = total_gb * 0.023  
