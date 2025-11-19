@@ -159,9 +159,9 @@ async def github_webhook(request: Request):
     upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
     time.sleep(5)
 
-    build_status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY, path, f"{owner}-{repo}",emit,build_id)
+    build_status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY, path, f"{owner}-{repo}",build_id)
     if build_status["build_status"] == "SUCCEEDED":
-        await codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}", build_id, emit)
+        await codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}", build_id)
         return {"message": "Build and deploy completed successfully"}
     else:
         return {"message": "Build failed, skipping deploy"}

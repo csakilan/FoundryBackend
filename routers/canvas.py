@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
@@ -576,25 +576,25 @@ async def cicd(Data: dict):
 #websocket connections
 
 
-sockets: dict[str, WebSocket] = {} #global dictionary 
+# sockets: dict[str, WebSocket] = {} #global dictionary 
 
-@router.websocket("/ws/{build_id}")
-async def ws_build(websocket: WebSocket, build_id: str):
+# @router.websocket("/ws/{build_id}")
+# async def ws_build(websocket: WebSocket, build_id: str):
     
-    await websocket.accept()
-    sockets[build_id] = websocket
+#     await websocket.accept()
+#     sockets[build_id] = websocket
 
   
 
-    try: 
-        while True:
-            data = await websocket.receive_text()
+#     try: 
+#         while True:
+#             data = await websocket.receive_text()
            
       
            
-    except WebSocketDisconnect:
-        print(f"WebSocket disconnected for build_id {build_id}")
-        sockets.pop(build_id, None)
+#     except WebSocketDisconnect:
+#         print(f"WebSocket disconnected for build_id {build_id}")
+#         sockets.pop(build_id, None)
 
    
 # async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
