@@ -641,7 +641,7 @@ async def cicd(Data: dict):
 
 #     # zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
 
-    print(zip_url)
+    # print(zip_url)
 
 
 #     # out_file = f"{repo}-{ref}.zip"
@@ -673,10 +673,10 @@ async def cicd(Data: dict):
 #     #     print(f"Failed to download file: {response.status_code} - {response.text}")
 
     
-    upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-    time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
+    # upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
+    # time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
 
-    status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
+    # status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
 #     # upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
    
 
@@ -684,32 +684,32 @@ async def cicd(Data: dict):
 
 #     # print(status)
 
-#     # if(status['build_status'] == 'SUCCEEDED'):
-#     #     await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
-#     #     ec2_details = boto3.client('ec2', region_name='us-east-1')
+    # if(status['build_status'] == 'SUCCEEDED'):
+    #     await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
+    #     ec2_details = boto3.client('ec2', region_name='us-east-1')
 
 
-#     #     ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
+    #     ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
         
-#     #     print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
+    #     print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
 
 
-#     #     try:
+    #     try:
 
-#     #         database = os.getenv("DATABASE_URL")
+    #         database = os.getenv("DATABASE_URL")
 
-#     #         connect = await asyncpg.connect(database)
+    #         connect = await asyncpg.connect(database)
 
-#     #         public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
+    #         public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
 
   
-#     #         endpoint =  f"http://{public_ip}:8000"
+    #         endpoint =  f"http://{public_ip}:8000"
                
 
-#     #         update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
+    #         update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
 
 
-#     #         print("update",update)  
+    #         print("update",update)  
 
 
 

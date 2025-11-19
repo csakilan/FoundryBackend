@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, Header, HTTPException, WebSocket
 from dotenv import load_dotenv
 import time
 import requests
-
+import boto3
 # Import your existing CICD functions
 from CICD.trigger_codebuild import trigger_codebuild
 from CICD.code_Deploy import codeDeploy
@@ -15,36 +15,41 @@ from CICD.deploymentScripts import addStartScript, addStopScript, addInstallScri
 from CICD.add_webhook import create_github_webhook
 from database import get_access_token_for_owner
 from database import get_access_token_for_owner
-
+import asyncpg
 load_dotenv()  # Load environment variables
 build_id_store = {}
 build_id_store = {}
 router = APIRouter(prefix="/github")  # All routes here will start with /github
 
-sockets: dict[str, WebSocket] = {}
-async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
-    websocket = sockets.get(build_id)
+# sockets: dict[str, WebSocket] = {}
+# async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
+#     websocket = sockets.get(build_id)
 
-    # await websocket.send_text(message)
 
-    if websocket:
-        await websocket.send_text(message)
+
+#     # await websocket.send_text(message)
+
+#     if websocket:
+#         await websocket.send_text(message)
    
-    else:
-        print(f"No active websocket for build_id: {build_id}") 
+#     else:
+#         print(f"No active websocket for build_id: {build_id}") 
 
 
 
 @router.post("/add_webhook")
 async def add_webhook(request: Request):
     """
-    Endpoint to create GitHub webhook using provided repo details
+    Endpoint to create GitHub webhook using provided repo details.
+    The user's OAuth token is retrieved from the database using the owner/username.
     """
     body = await request.json()
     try:
         owner = body["owner"]
         repo = body["repo"]
         build_id = body["build_id"]
+
+  
     except KeyError as e:
         raise HTTPException(status_code=400, detail=f"Missing field: {e.args[0]}")
 
@@ -77,7 +82,7 @@ async def add_webhook(request: Request):
     if success:
         return {"status": "success", "message": response_message}
     else:
-        return {"status": "error", "message": response_message}
+        raise HTTPException(status_code=400, detail=f"GitHub API Error: Failed to create webhook. Response: {response_message}")
 
 
 @router.post("/webhook")
@@ -157,11 +162,74 @@ async def github_webhook(request: Request):
         return {"message": "Download failed"}
 
     upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-    time.sleep(5)
+    time.sleep(2)
 
     build_status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY, path, f"{owner}-{repo}",build_id)
     if build_status["build_status"] == "SUCCEEDED":
         await codeDeploy(owner, repo, "foundry-artifacts-bucket", f"founryCICD-{owner}-{repo}", build_id)
-        return {"message": "Build and deploy completed successfully"}
-    else:
-        return {"message": "Build failed, skipping deploy"}
+        
+        ec2_details = boto3.client('ec2', region_name='us-east-1')
+        ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [build_id]}])
+
+        print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
+
+        try: 
+            database = os.getenv("DATABASE_URL")
+
+            connect = await asyncpg.connect(database)
+
+            public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
+
+
+            endpoint =  f"http://{public_ip}:8000"
+               
+
+            update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(build_id))
+
+
+            print("update",update)
+
+            return {"endpoint": endpoint}
+        
+        except Exception as e:
+            
+            print("failed to fetch ec2 details",e)
+             
+
+      
+
+
+   
+
+
+  
+        
+    
+
+
+    #     try:
+
+    #         database = os.getenv("DATABASE_URL")
+
+    #         connect = await asyncpg.connect(database)
+
+    #         public_ip = ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']
+
+  
+    #         endpoint =  f"http://{public_ip}:8000"
+               
+
+    #         update = await connect.execute("UPDATE build SET endpoint = $1 WHERE id = $2",endpoint,int(tag))
+
+
+    #         print("update",update)  
+
+
+
+            
+            
+#     #         return {"ec2_address": f"http:{ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}:8000"}    
+
+    
+#     #     except Exception as e:
+#     #         print("failed to fetch ec2 details",e)
