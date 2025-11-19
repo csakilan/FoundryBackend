@@ -30,7 +30,6 @@ async def trigger_codebuild(project_name, s3_bucket, s3_key,path,id,tag): #in th
 
         while True: #checking for the build status every 10 seconds until it is complete
             build_id = response['build']['id']
-        
             build_info = codebuild_client.batch_get_builds(ids=[build_id]) #api call to get build info
             build_status = build_info['builds'][0]['buildStatus'] 
             print(f"Current build status: {build_status}")

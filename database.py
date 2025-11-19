@@ -260,6 +260,31 @@ def get_access_token_for_owner(owner_username: str) -> str:
        raise HTTPException(status_code=404, detail=f"Token not found for user '{owner_username}'.")
    return token
 
+def get_access_token_for_owner(owner_username: str) -> str:
+   """
+   Retrieves the GitHub access token from the dedicated encrypted column.
+   """
+   token = None
+   with get_db_connection() as conn:
+       cursor = conn.cursor()
+       # Select ONLY the access token
+       cursor.execute(
+           """
+           SELECT github_access_token
+           FROM account
+           WHERE github_login = %s
+           """,
+           (owner_username,)
+       )
+       result = cursor.fetchone()
+       if result:
+           # Result is (token_string,), so we take the first element
+           token = result[0]
+      
+   if not token:
+       raise HTTPException(status_code=404, detail=f"Token not found for user '{owner_username}'.")
+   return token
+
 
 if __name__ == "__main__":
     # Test connection when running this file directly

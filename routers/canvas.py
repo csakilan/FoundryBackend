@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header,WebSocket,WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
@@ -569,6 +569,10 @@ async def get_repos(authorization: Optional[str] = Header(None)):
     ]
         return simplified
 
+
+@router.post("/builds")
+async def cicd(Data: dict):
+    print('route reached')
 #websocket connections
 
 
@@ -637,7 +641,7 @@ async def ws_build(websocket: WebSocket, build_id: str):
 
 #     # zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
 
-  
+    print(zip_url)
 
 
 #     # out_file = f"{repo}-{ref}.zip"
@@ -669,6 +673,10 @@ async def ws_build(websocket: WebSocket, build_id: str):
 #     #     print(f"Failed to download file: {response.status_code} - {response.text}")
 
     
+    upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
+    time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
+
+    status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
 #     # upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
    
 
