@@ -1,6 +1,6 @@
 import boto3
 import asyncio
-async def codeDeploy(owner, repo, bucket_name, object_key,tag):
+async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
    
 
     print("tag",tag)
@@ -78,6 +78,8 @@ async def codeDeploy(owner, repo, bucket_name, object_key,tag):
             status =  deployment_info['status']
             
             print("status",status)
+
+            await emit_func(tag, status)
 
             
 

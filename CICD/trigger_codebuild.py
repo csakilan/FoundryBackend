@@ -3,7 +3,7 @@ import time
 import uuid
 
 
-async def trigger_codebuild(project_name, s3_bucket, s3_key,path,id,tag): #in the future it will be their build id or something
+async def trigger_codebuild(project_name, s3_bucket, s3_key,path,id,tag,emit_func): #in the future it will be their build id or something
 
     codebuild_client = boto3.client('codebuild',region_name='us-east-1')
     
@@ -34,11 +34,13 @@ async def trigger_codebuild(project_name, s3_bucket, s3_key,path,id,tag): #in th
             build_status = build_info['builds'][0]['buildStatus'] 
             print(f"Current build status: {build_status}")
             
+            await emit_func(tag, build_status)
+            
  
             
             if build_status in ['SUCCEEDED', 'FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT']:
                 break
-            time.sleep(10)
+            time.sleep(3)
 
 
             # if(build_status == 'SUCCEEDED'):
