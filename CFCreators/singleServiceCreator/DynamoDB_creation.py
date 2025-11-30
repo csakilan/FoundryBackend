@@ -2,6 +2,10 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, Tags, Output, GetAtt
 import troposphere.dynamodb as dynamodb
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def sanitize_dynamodb_name(name: str) -> str:
@@ -66,17 +70,19 @@ def add_dynamodb_table(
     """
     data = node["data"]
     
-    # Generate unique table name: <build_id>-<unique_number>-<user_tablename>
-    # Use node ID for stability across template generations
-    unique_number = sanitize_dynamodb_name(node['id'][:6])  # SANITIZE node_id portion!
+    # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
+    if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
+        build_id = 'default'
+    
+    # Generate unique table name: <build_id>-<user_tablename>
     user_table_name = sanitize_dynamodb_name(data['tableName'])  # Sanitize user name
     sanitized_build_id = sanitize_dynamodb_name(build_id)  # Sanitize build_id
-    table_name = f"{sanitized_build_id}-{unique_number}-{user_table_name}"
+    table_name = f"{sanitized_build_id}-{user_table_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"DynamoDB{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}{user_table_name.replace('-', '').replace(':', '')}"
+        logical_id = f"DynamoDB{build_id.replace('-', '').replace(':', '').title()}{user_table_name.replace('-', '').replace(':', '')}"
     
     print(f"  → Generated unique DynamoDB table name: {table_name}")
     print(f"  → Generated logical ID: {logical_id}")

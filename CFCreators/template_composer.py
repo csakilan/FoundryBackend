@@ -1,12 +1,20 @@
 # make_stack.py
 from troposphere import Template, Parameter, Ref
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 from .singleServiceCreator import (
     EC2_creation, S3_creation, RDS_creation, DynamoDB_creation,
     create_ec2_s3_role, create_ec2_dynamodb_role, create_ec2_multi_service_role
 )
 
+load_dotenv()
+
 def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict = None) -> Template:
+    # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
+    if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
+        build_id = 'default'
+        print("⚠️  USE_DEFAULT_BUILD_ID is enabled - using 'default' as build_id")
     t = Template()
     t.set_version("2010-09-09")  # AWSTemplateFormatVersion
     t.set_description("Foundry v1 - Single stack for EC2/S3/RDS/DynamoDB")

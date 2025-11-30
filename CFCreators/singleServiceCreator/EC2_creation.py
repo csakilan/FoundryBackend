@@ -2,6 +2,10 @@
 from typing import Dict, Any, Optional
 from troposphere import Template, Ref, Base64, Sub, Tags, Output, GetAtt
 import troposphere.ec2 as ec2
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Mapping of friendly image names to AWS SSM Parameter Store paths
 # These SSM parameters are maintained by AWS and automatically point to the latest AMI
@@ -115,18 +119,20 @@ def add_ec2_instance(
     """
     data = node["data"]
     
-    # Generate unique instance identifier: <build_id>-<unique_number>-<user_name>
-    # Use node ID for stability across template generations
-    unique_number = sanitize_ec2_name(node['id'][:6])  # SANITIZE node_id portion!
+    # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
+    if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
+        build_id = 'default'
+    
+    # Generate unique instance identifier: <build_id>-<user_name>
     user_name = sanitize_ec2_name(data["name"])  # Sanitize user name
     sanitized_build_id = sanitize_ec2_name(build_id)  # Sanitize build_id
     
-    instance_name = f"{sanitized_build_id}-{unique_number}-{user_name}"
+    instance_name = f"{sanitized_build_id}-{user_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"EC2{build_id.replace('-', '').replace(':', '').title()}{unique_number.replace('-', '').replace(':', '')}{user_name.replace('-', '').replace(':', '')}"
+        logical_id = f"EC2{build_id.replace('-', '').replace(':', '').title()}{user_name.replace('-', '').replace(':', '')}"
     
     print(f"  → Generated unique EC2 instance name: {instance_name}")
     print(f"  → Generated logical ID: {logical_id}")
@@ -188,7 +194,7 @@ def add_ec2_instance(
     
     # Note: MetadataOptions is not supported in Troposphere 4.9.4
     # Uncomment below when upgrading to Troposphere 4.0+ (requires newer version):
-    props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
+    # props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
 
     props['IamInstanceProfile'] =  "ec2CodeDeploy"
     # Add IAM instance profile if provided (for S3, DynamoDB access)

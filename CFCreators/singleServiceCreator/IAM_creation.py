@@ -2,6 +2,10 @@
 from typing import Dict, Any, List
 from troposphere import Template, Ref, GetAtt, Sub
 import troposphere.iam as iam
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def sanitize_iam_name(name: str) -> str:
@@ -168,6 +172,10 @@ def create_ec2_dynamodb_role(
         Tuple of (iam_role, instance_profile)
     """
     
+    # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
+    if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
+        build_id = 'default'
+    
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
     # Use unique_id if provided for stability, otherwise fallback to timestamp
     if unique_id:
@@ -265,6 +273,10 @@ def create_ec2_multi_service_role(
     Returns:
         Tuple of (iam_role, instance_profile)
     """
+    
+    # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
+    if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
+        build_id = 'default'
     
     # Generate unique identifiers: <build_id>-<unique_number>-<purpose>
     # Use unique_id if provided for stability, otherwise fallback to timestamp
