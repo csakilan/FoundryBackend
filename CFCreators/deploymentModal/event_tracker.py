@@ -122,12 +122,16 @@ class DeploymentEventTracker:
         completed = 0
         in_progress = 0
         failed = 0
+        updated = 0
         
         for resource in self.resource_statuses.values():
             status = resource['status']
             
             if status.endswith('_COMPLETE'):
                 completed += 1
+                # Count UPDATE_COMPLETE separately
+                if status.startswith('UPDATE'):
+                    updated += 1
             elif status.endswith('_IN_PROGRESS'):
                 in_progress += 1
             elif status.endswith('_FAILED'):
@@ -145,6 +149,7 @@ class DeploymentEventTracker:
             'status': self.stack_status or 'UNKNOWN',
             'totalResources': total_resources,
             'completedResources': completed,
+            'updatedResources': updated,
             'inProgressResources': in_progress,
             'failedResources': failed,
             'progress': progress

@@ -100,6 +100,32 @@ def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict 
             elif source_type == "RDS":
                 ec2_dependencies[target]["rds"].append(source)
     
+    # ========== VERIFICATION: Print parsed edges and dependencies ==========
+    print(f"\n[EDGE PARSING VERIFICATION]")
+    print(f"Total edges found: {len(edges)}")
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        source_node = next((n for n in normalized.get("nodes", []) if n.get("id") == source), None)
+        target_node = next((n for n in normalized.get("nodes", []) if n.get("id") == target), None)
+        if source_node and target_node:
+            print(f"  Edge: {source_node.get('type')} '{source}' → {target_node.get('type')} '{target}'")
+        else:
+            print(f"  Edge: '{source}' → '{target}' (node not found)")
+    
+    print(f"\nParsed EC2 dependencies:")
+    for ec2_id, deps in ec2_dependencies.items():
+        print(f"  EC2 '{ec2_id}':")
+        if deps["s3"]:
+            print(f"    - S3 buckets: {deps['s3']}")
+        if deps["dynamodb"]:
+            print(f"    - DynamoDB tables: {deps['dynamodb']}")
+        if deps["rds"]:
+            print(f"    - RDS instances: {deps['rds']}")
+        if not any(deps.values()):
+            print(f"    - No dependencies")
+    print(f"[END EDGE VERIFICATION]\n")
+    
     # ========== PHASE 2: Create non-EC2 resources first and store references ==========
     resource_refs = {}  # {node_id: {"type": "S3", "logical_id": "S3bucket1", "resource": <obj>}}
     
@@ -164,8 +190,14 @@ def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict 
         instance_profile = None
         environment_variables = {}
         
+        print(f"\n[EC2 {node_id}] Analyzing dependencies:")
+        print(f"  - has_s3: {has_s3}")
+        print(f"  - has_dynamodb: {has_dynamodb}")
+        print(f"  - has_rds: {has_rds_dep}")
+        
         # If EC2 has connections, create IAM role and env vars
         if has_s3 or has_dynamodb:
+            print(f"  → Creating IAM role for EC2 {node_id}")
             services = {}
             
             # Collect S3 buckets
@@ -198,6 +230,10 @@ def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict 
             iam_role, instance_profile = create_ec2_multi_service_role(
                 t, services, logical_id=f"{logical_id}Role", build_id=build_id, unique_id=node_id
             )
+            print(f"  ✓ IAM role created: {iam_role.title if hasattr(iam_role, 'title') else 'MultiServiceRole'}")
+            print(f"  ✓ Instance profile created: {instance_profile.title if hasattr(instance_profile, 'title') else 'InstanceProfile'}")
+        else:
+            print(f"  ⚠ No IAM role created - EC2 has no S3/DynamoDB dependencies")
         
         # Add RDS connection info as environment variables (no IAM needed, uses credentials)
         if has_rds_dep:
@@ -223,6 +259,8 @@ def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict 
             instance_name = node.get('data', {}).get('name', '')
             if instance_name in key_pairs:
                 instance_key_name = key_pairs[instance_name].get('keyName')
+        
+        print(f"  → Creating EC2 instance with instance_profile: {instance_profile}")
         
         EC2_creation.add_ec2_instance(
             t, node, subnet_param, sg_param,

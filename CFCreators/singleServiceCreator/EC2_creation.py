@@ -196,12 +196,12 @@ def add_ec2_instance(
     # Uncomment below when upgrading to Troposphere 4.0+ (requires newer version):
     # props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
 
-    props['IamInstanceProfile'] =  "ec2CodeDeploy"
     # Add IAM instance profile if provided (for S3, DynamoDB access)
-    
-    
-    # if instance_profile:
-    #     props['IamInstanceProfile'] = Ref(instance_profile)
+    if instance_profile:
+        props['IamInstanceProfile'] = Ref(instance_profile)
+    else:
+        # Fallback to ec2CodeDeploy if no custom instance profile
+        props['IamInstanceProfile'] = "ec2CodeDeploy"
     
     # Add SSH key pair if provided (either from parameter or auto-generated)
     if key_name:
