@@ -114,6 +114,14 @@ def add_ec2_instance(
         The created EC2 Instance resource
     """
     data = node["data"]
+
+    repositories = data.get("repos")
+
+    github_url = f"https://github.com/csakilan/SandwichClassifier.git"
+
+    print("repositories to send to user data",repositories)
+
+    print("data to know heheheha",data)
     
     # Generate unique instance identifier: <build_id>-<unique_number>-<user_name>
     # Use node ID for stability across template generations
@@ -203,17 +211,47 @@ def add_ec2_instance(
     elif data.get("keyName"):
         props["KeyName"] = data["keyName"]
     
-    props["UserData"] = Base64(Sub("""#!/bin/bash
+#     props["UserData"] = Base64(f"""#!/bin/bash
+# sudo apt-get update -y
+# sudo apt-get install -y ruby wget
+# cd /home/ubuntu
+# wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+# chmod +x ./install
+# sudo ./install auto
+# sudo systemctl enable --now codedeploy-agent
+# sudo systemctl status codedeploy-agent
+# sudo tail -n 200 /var/log/aws/codedeploy-agent/codedeploy-agent.log
+                                   
+# sudo yum update -y
+# git clone {repositories} /var/www/app
+# cd /var/www/app
+# npm install
+# npm start
+
+                            
+                                   
+                                
+# """)
+    props["UserData"] = Base64(f"""#!/bin/bash
+set -xe
 sudo apt-get update -y
-sudo apt-get install -y ruby wget
+sudo apt-get install -y ruby wget git python3 python3-pip
 cd /home/ubuntu
 wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
 chmod +x ./install
 sudo ./install auto
 sudo systemctl enable --now codedeploy-agent
-sudo systemctl status codedeploy-agent
-sudo tail -n 200 /var/log/aws/codedeploy-agent/codedeploy-agent.log
-"""))
+                               
+sudo apt update
+sudo apt install -y libgl1
+sudo mkdir -p /var/www/app
+sudo chown -R ubuntu:ubuntu /var/www
+git clone {github_url} /var/www/app
+cd /var/www/app
+pip3 install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
+""")
+
 
     
 
