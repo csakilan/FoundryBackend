@@ -56,7 +56,7 @@ def sanitize_ec2_name(name: str) -> str:
 def resolve_image_id(image_input: str) -> str:
     """
     Resolve image ID from either:
-    1. A friendly name (Amazon Linux, Ubuntu, Windows, macOS) -> returns SSM parameter
+    1. A friendly name (Amazon Linux, Ubuntu, Windows, macOS) -> returns SSM parameter or custom AMI
     2. A direct AMI ID (ami-xxxxx) -> returns as-is
     
     Args:
@@ -68,6 +68,13 @@ def resolve_image_id(image_input: str) -> str:
     # If it's already an AMI ID, return it
     if image_input.startswith("ami-"):
         return image_input
+    
+    # DEMO MODE: Use custom Ubuntu AMI with pre-installed dependencies
+    demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
+    if demo_mode and image_input == "Ubuntu":
+        custom_ami = "ami-0b00cc58858a2c5a4"
+        print(f"  🚀 DEMO MODE: Using custom Ubuntu AMI: {custom_ami}")
+        return custom_ami
     
     # Otherwise, look up the SSM parameter for the friendly name
     ssm_param = IMAGE_NAME_TO_SSM.get(image_input)
