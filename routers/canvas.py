@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Header, WebSocket, WebSocketDisconnect,UploadFile,File,Form
 from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
@@ -989,7 +989,42 @@ def logs(build_id:str):
 
 
     
+@router.post('/s3/upload')
+def s3(file: UploadFile = File(...),bucket_name: str = Form(...),node_id: str = Form(...)):
+    # print("hello world",file.filename)
+    # print("bucket name",bucket_name)
+    # print("node id",node_id)
+
+    node_id = node_id.split(":")[-1]
+
+    node_id = node_id[0:3].lower()
 
 
+    # print("new node_id",node_id)
+
+    try:
+        s3 = boto3.client('s3')
+
+
+        # bucket_name = "default-s3-ahs-my-app-bucket"
+
+        second_name = f"default-s3-{node_id}-{bucket_name}"
+
+        print("bucket name final",bucket_name)
+
+        print('second name',second_name)
+
+        object_name = f"uploads/{file.filename} "
+
+        s3.upload_fileobj(file.file, second_name, object_name)
+
+        return {"success": True, "filename": object_name}
+
+    
+
+    except Exception as e: 
+        print("s3 client error",e)
+
+        return {"success": False, "error": str(e)}
 
    
