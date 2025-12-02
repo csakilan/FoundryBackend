@@ -198,7 +198,13 @@ def add_ec2_instance(
 
     # Add IAM instance profile if provided (for S3, DynamoDB access)
     if instance_profile:
-        props['IamInstanceProfile'] = Ref(instance_profile)
+        # Check if instance_profile is a string (demo mode) or a Troposphere object
+        if isinstance(instance_profile, str):
+            # Demo mode: Use pre-created instance profile by name
+            props['IamInstanceProfile'] = instance_profile
+        else:
+            # Production mode: Reference dynamically created instance profile
+            props['IamInstanceProfile'] = Ref(instance_profile)
     else:
         # Fallback to ec2CodeDeploy if no custom instance profile
         props['IamInstanceProfile'] = "ec2CodeDeploy"
