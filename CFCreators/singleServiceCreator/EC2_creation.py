@@ -72,7 +72,7 @@ def resolve_image_id(image_input: str) -> str:
     # DEMO MODE: Use custom Ubuntu AMI with pre-installed dependencies
     demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
     if demo_mode and image_input == "Ubuntu":
-        custom_ami = "ami-0650b7c7445670128"
+        custom_ami = "ami-002382dae3b809f72"
         print(f"  🚀 DEMO MODE: Using custom Ubuntu AMI: {custom_ami}")
         return custom_ami
     
