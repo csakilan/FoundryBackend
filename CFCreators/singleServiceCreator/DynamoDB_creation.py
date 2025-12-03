@@ -77,12 +77,12 @@ def add_dynamodb_table(
     # Generate unique table name: <build_id>-<user_tablename>
     user_table_name = sanitize_dynamodb_name(data['tableName'])  # Sanitize user name
     sanitized_build_id = sanitize_dynamodb_name(build_id)  # Sanitize build_id
-    table_name = f"{sanitized_build_id}-{user_table_name}"
+    table_name = f"{user_table_name}"
     
     # Generate logical ID if not provided
     if logical_id is None:
         # CloudFormation logical IDs can't have hyphens, use CamelCase
-        logical_id = f"DynamoDB{build_id.replace('-', '').replace(':', '').title()}{user_table_name.replace('-', '').replace(':', '')}"
+        logical_id = f"DynamoDB{user_table_name.replace('-', '').replace(':', '')}"
     
     print(f"  → Generated unique DynamoDB table name: {table_name}")
     print(f"  → Generated logical ID: {logical_id}")
