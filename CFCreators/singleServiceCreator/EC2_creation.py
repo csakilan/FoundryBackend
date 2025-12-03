@@ -56,7 +56,7 @@ def sanitize_ec2_name(name: str) -> str:
 def resolve_image_id(image_input: str) -> str:
     """
     Resolve image ID from either:
-    1. A friendly name (Amazon Linux, Ubuntu, Windows, macOS) -> returns SSM parameter
+    1. A friendly name (Amazon Linux, Ubuntu, Windows, macOS) -> returns SSM parameter or custom AMI
     2. A direct AMI ID (ami-xxxxx) -> returns as-is
     
     Args:
@@ -68,6 +68,13 @@ def resolve_image_id(image_input: str) -> str:
     # If it's already an AMI ID, return it
     if image_input.startswith("ami-"):
         return image_input
+    
+    # DEMO MODE: Use custom Ubuntu AMI with pre-installed dependencies
+    demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
+    if demo_mode and image_input == "Ubuntu":
+        custom_ami = "ami-0650b7c7445670128"
+        print(f"  🚀 DEMO MODE: Using custom Ubuntu AMI: {custom_ami}")
+        return custom_ami
     
     # Otherwise, look up the SSM parameter for the friendly name
     ssm_param = IMAGE_NAME_TO_SSM.get(image_input)
@@ -118,14 +125,6 @@ def add_ec2_instance(
         The created EC2 Instance resource
     """
     data = node["data"]
-
-    repositories = data.get("repos")
-
-    github_url = f"https://github.com/csakilan/SandwichClassifier.git"
-
-    print("repositories to send to user data",repositories)
-
-    print("data to know heheheha",data)
     
     # Override build_id with "default" if USE_DEFAULT_BUILD_ID is true (for testing)
     if os.getenv('USE_DEFAULT_BUILD_ID', 'false').lower() == 'true':
@@ -202,11 +201,17 @@ def add_ec2_instance(
     
     # Note: MetadataOptions is not supported in Troposphere 4.9.4
     # Uncomment below when upgrading to Troposphere 4.0+ (requires newer version):
-    # props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
+    props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
 
     # Add IAM instance profile if provided (for S3, DynamoDB access)
     if instance_profile:
-        props['IamInstanceProfile'] = Ref(instance_profile)
+        # Check if instance_profile is a string (demo mode) or a Troposphere object
+        if isinstance(instance_profile, str):
+            # Demo mode: Use pre-created instance profile by name
+            props['IamInstanceProfile'] = instance_profile
+        else:
+            # Production mode: Reference dynamically created instance profile
+            props['IamInstanceProfile'] = Ref(instance_profile)
     else:
         # Fallback to ec2CodeDeploy if no custom instance profile
         props['IamInstanceProfile'] = "ec2CodeDeploy"
@@ -217,47 +222,17 @@ def add_ec2_instance(
     elif data.get("keyName"):
         props["KeyName"] = data["keyName"]
     
-#     props["UserData"] = Base64(f"""#!/bin/bash
-# sudo apt-get update -y
-# sudo apt-get install -y ruby wget
-# cd /home/ubuntu
-# wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
-# chmod +x ./install
-# sudo ./install auto
-# sudo systemctl enable --now codedeploy-agent
-# sudo systemctl status codedeploy-agent
-# sudo tail -n 200 /var/log/aws/codedeploy-agent/codedeploy-agent.log
-                                   
-# sudo yum update -y
-# git clone {repositories} /var/www/app
-# cd /var/www/app
-# npm install
-# npm start
-
-                            
-                                   
-                                
-# """)
-    props["UserData"] = Base64(f"""#!/bin/bash
-set -xe
+    props["UserData"] = Base64(Sub("""#!/bin/bash
 sudo apt-get update -y
-sudo apt-get install -y ruby wget git python3 python3-pip
+sudo apt-get install -y ruby wget
 cd /home/ubuntu
 wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
 chmod +x ./install
 sudo ./install auto
 sudo systemctl enable --now codedeploy-agent
-                               
-sudo apt update
-sudo apt install -y libgl1
-sudo mkdir -p /var/www/app
-sudo chown -R ubuntu:ubuntu /var/www
-git clone {github_url} /var/www/app
-cd /var/www/app
-pip3 install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
-""")
-
+sudo systemctl status codedeploy-agent
+sudo tail -n 200 /var/log/aws/codedeploy-agent/codedeploy-agent.log
+"""))
 
     
 

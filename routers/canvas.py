@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, WebSocket, WebSocketDisconnect,UploadFile,File,Form
+from fastapi import APIRouter, HTTPException, Header, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
@@ -989,6 +989,8 @@ def logs(build_id:str):
 
 
     
+
+
 @router.post('/s3/upload')
 def s3(file: UploadFile = File(...),bucket_name: str = Form(...),node_id: str = Form(...)):
     # print("hello world",file.filename)
@@ -1008,7 +1010,7 @@ def s3(file: UploadFile = File(...),bucket_name: str = Form(...),node_id: str = 
 
         # bucket_name = "default-s3-ahs-my-app-bucket"
 
-        second_name = f"default-s3-{node_id}-{bucket_name}"
+        second_name = f"default-{bucket_name}"
 
         print("bucket name final",bucket_name)
 
