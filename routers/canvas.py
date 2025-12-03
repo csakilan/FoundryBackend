@@ -1016,7 +1016,7 @@ def s3(file: UploadFile = File(...),bucket_name: str = Form(...),node_id: str = 
 
         print('second name',second_name)
 
-        object_name = f"uploads/{file.filename} "
+        object_name = f"{file.filename} "
 
         s3.upload_fileobj(file.file, second_name, object_name)
 

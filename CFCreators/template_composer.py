@@ -195,43 +195,74 @@ def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict 
         print(f"  - has_dynamodb: {has_dynamodb}")
         print(f"  - has_rds: {has_rds_dep}")
         
-        # If EC2 has connections, create IAM role and env vars
+        # Check if DEMO_MODE is enabled
+        demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
+        
+        # If EC2 has connections, create IAM role and env vars (or use demo role)
         if has_s3 or has_dynamodb:
-            print(f"  → Creating IAM role for EC2 {node_id}")
-            services = {}
+            if demo_mode:
+                # Use pre-created demo IAM role (skips IAM propagation delay)
+                demo_profile_name = os.getenv('DEMO_IAM_INSTANCE_PROFILE_NAME', 'foundry-demo-ec2-profile')
+                print(f"  🚀 DEMO MODE: Using pre-created instance profile: {demo_profile_name}")
+                print(f"  ⚡ Skipping IAM role creation (saves 30-90 seconds)")
+                
+                # Reference existing instance profile by name (no resource creation)
+                from troposphere import iam
+                # We'll just store the profile name and reference it directly in EC2
+                instance_profile = demo_profile_name  # Store as string instead of object
+            else:
+                # Production mode: Create new IAM role dynamically
+                print(f"  → Creating IAM role for EC2 {node_id}")
+                services = {}
+                
+                # Collect S3 buckets
+                if has_s3:
+                    services["s3_buckets"] = [
+                        resource_refs[s3_id]["resource"] 
+                        for s3_id in dependencies["s3"] 
+                        if s3_id in resource_refs
+                    ]
+                    # Add S3 bucket names as environment variables
+                    for idx, s3_id in enumerate(dependencies["s3"]):
+                        if s3_id in resource_refs:
+                            env_var_name = f"S3_BUCKET_{idx+1}" if idx > 0 else "S3_BUCKET_NAME"
+                            environment_variables[env_var_name] = Ref(resource_refs[s3_id]["resource"])
+                
+                # Collect DynamoDB tables
+                if has_dynamodb:
+                    services["dynamodb_tables"] = [
+                        resource_refs[dynamo_id]["resource"]
+                        for dynamo_id in dependencies["dynamodb"]
+                        if dynamo_id in resource_refs
+                    ]
+                    # Add DynamoDB table names as environment variables
+                    for idx, dynamo_id in enumerate(dependencies["dynamodb"]):
+                        if dynamo_id in resource_refs:
+                            env_var_name = f"DYNAMODB_TABLE_{idx+1}" if idx > 0 else "DYNAMODB_TABLE_NAME"
+                            environment_variables[env_var_name] = Ref(resource_refs[dynamo_id]["resource"])
+                
+                # Create multi-service IAM role
+                iam_role, instance_profile = create_ec2_multi_service_role(
+                    t, services, logical_id=f"{logical_id}Role", build_id=build_id, unique_id=node_id
+                )
+                print(f"  ✓ IAM role created: {iam_role.title if hasattr(iam_role, 'title') else 'MultiServiceRole'}")
+                print(f"  ✓ Instance profile created: {instance_profile.title if hasattr(instance_profile, 'title') else 'InstanceProfile'}")
             
-            # Collect S3 buckets
-            if has_s3:
-                services["s3_buckets"] = [
-                    resource_refs[s3_id]["resource"] 
-                    for s3_id in dependencies["s3"] 
-                    if s3_id in resource_refs
-                ]
-                # Add S3 bucket names as environment variables
-                for idx, s3_id in enumerate(dependencies["s3"]):
-                    if s3_id in resource_refs:
-                        env_var_name = f"S3_BUCKET_{idx+1}" if idx > 0 else "S3_BUCKET_NAME"
-                        environment_variables[env_var_name] = Ref(resource_refs[s3_id]["resource"])
-            
-            # Collect DynamoDB tables
-            if has_dynamodb:
-                services["dynamodb_tables"] = [
-                    resource_refs[dynamo_id]["resource"]
-                    for dynamo_id in dependencies["dynamodb"]
-                    if dynamo_id in resource_refs
-                ]
-                # Add DynamoDB table names as environment variables
-                for idx, dynamo_id in enumerate(dependencies["dynamodb"]):
-                    if dynamo_id in resource_refs:
-                        env_var_name = f"DYNAMODB_TABLE_{idx+1}" if idx > 0 else "DYNAMODB_TABLE_NAME"
-                        environment_variables[env_var_name] = Ref(resource_refs[dynamo_id]["resource"])
-            
-            # Create multi-service IAM role
-            iam_role, instance_profile = create_ec2_multi_service_role(
-                t, services, logical_id=f"{logical_id}Role", build_id=build_id, unique_id=node_id
-            )
-            print(f"  ✓ IAM role created: {iam_role.title if hasattr(iam_role, 'title') else 'MultiServiceRole'}")
-            print(f"  ✓ Instance profile created: {instance_profile.title if hasattr(instance_profile, 'title') else 'InstanceProfile'}")
+            # Still add environment variables even in demo mode
+            if not environment_variables:  # Only if not already populated
+                # Collect S3 buckets
+                if has_s3:
+                    for idx, s3_id in enumerate(dependencies["s3"]):
+                        if s3_id in resource_refs:
+                            env_var_name = f"S3_BUCKET_{idx+1}" if idx > 0 else "S3_BUCKET_NAME"
+                            environment_variables[env_var_name] = Ref(resource_refs[s3_id]["resource"])
+                
+                # Collect DynamoDB tables
+                if has_dynamodb:
+                    for idx, dynamo_id in enumerate(dependencies["dynamodb"]):
+                        if dynamo_id in resource_refs:
+                            env_var_name = f"DYNAMODB_TABLE_{idx+1}" if idx > 0 else "DYNAMODB_TABLE_NAME"
+                            environment_variables[env_var_name] = Ref(resource_refs[dynamo_id]["resource"])
         else:
             print(f"  ⚠ No IAM role created - EC2 has no S3/DynamoDB dependencies")
         
