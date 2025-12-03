@@ -551,13 +551,33 @@ def get_builds(id: str):
 
 @router.get('/')
 async def get_repos(authorization: Optional[str] = Header(None)):
+    print(f"[DEBUG] Authorization header received: {authorization}")
     if not authorization:
+        print("[DEBUG] Authorization header is None or empty")
         raise HTTPException(status_code=401, detail="Authorization header missing")
-    token = authorization.split(" ")[1]
+    
+    try:
+        token = authorization.split(" ")[1]
+        print(f"[DEBUG] Extracted token: {token[:10]}..." if len(token) > 10 else f"[DEBUG] Token too short: {token}")
+    except IndexError:
+        print(f"[DEBUG] Failed to split authorization header: {authorization}")
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"https://api.github.com/users/{token}/repos")
+        # Use the correct GitHub API endpoint with authentication
+        headers = {"Authorization": f"Bearer {token}"}
+        response = await client.get("https://api.github.com/user/repos", headers=headers)
+        print(f"[DEBUG] GitHub API status: {response.status_code}")
         repos = response.json()
-        # print(repos)
+        
+        # Check if GitHub API returned an error
+        if isinstance(repos, dict) and "message" in repos:
+            raise HTTPException(status_code=401, detail=f"GitHub API Error: {repos.get('message', 'Unknown error')}")
+        
+        # Ensure repos is a list before iterating
+        if not isinstance(repos, list):
+            raise HTTPException(status_code=500, detail="Unexpected response from GitHub API")
+        
         simplified = [
         {
             "name": repo["name"],
