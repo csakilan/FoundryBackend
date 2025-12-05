@@ -1,80 +1,40 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, HTTPException, Header,WebSocket,WebSocketDisconnect
+from pydantic import BaseModel
 from typing import Optional
 from CFCreators import CFCreator
 import json
 from pathlib import Path
-from database import save_build, log_activity
-from fastapi import APIRouter, HTTPException,Header
-from typing import Optional
 import httpx
-import requests
-#cicd imports
+from database import save_build, log_activity, get_build, update_build_canvas_and_template, get_builds_by_owner
+import boto3
 from CICD.addYamlZip import addAppSpec, addBuildSpec, fastapi_appspec_template,fastapi_buildspec_template
 from CICD.upload_s3 import upload_to_s3
 import time
 from CICD.trigger_codebuild import trigger_codebuild
 from CICD.deploymentScripts import addStartScript,start_sh_template,stop_sh_template,addStopScript,addInstallScript,install_sh_template
 from CICD.code_Deploy import codeDeploy
-
+import requests
 #settings imports 
 from settings.get_user import get_users
 from dotenv import load_dotenv
 import os
 import asyncpg,asyncio
+from datetime import datetime
+
+import random
+
+# Import deployment tracking
+from CFCreators.deploymentModal.websocket_handler import deployment_ws_manager
 
 router = APIRouter(prefix="/canvas")
-
-builds = APIRouter(prefix='/builds')
-
-#builds 
-
-import uuid
-from datetime import datetime
+builds = APIRouter(prefix="/builds")
 
 
 class DeployRequest(BaseModel):
-    # Accept either wrapped format (canvas: {...}) or flat format (nodes, edges directly)
-    canvas: Optional[dict] = None
-    nodes: Optional[list] = None
-    edges: Optional[list] = None
-    viewport: Optional[dict] = None
-    buildId: Optional[str] = None
-    
+    buildId: int  # REQUIRED - Build ID from /builds/new
+    canvas: dict
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
-    
-    class Config:
-        extra = 'allow'
-    
-    @field_validator('canvas', mode='before')
-    @classmethod
-    def build_canvas(cls, v, info):
-        """If canvas is not provided, build it from nodes/edges"""
-        # If canvas is already provided, use it
-        if v is not None:
-            return v
-        # Otherwise, check if we have nodes/edges at root level
-        # Note: At validation time, we have access to all field values via info.data
-        return None
-    
-    def get_canvas_data(self) -> dict:
-        """Get canvas data regardless of input format"""
-        if self.canvas is not None:
-            return self.canvas
-        
-        # Build from flat structure
-        canvas = {}
-        if self.nodes is not None:
-            canvas['nodes'] = self.nodes
-        if self.edges is not None:
-            canvas['edges'] = self.edges
-        if self.viewport is not None:
-            canvas['viewport'] = self.viewport
-        if self.buildId is not None:
-            canvas['buildId'] = self.buildId
-        
-        return canvas
 
 
 class UpdateRequest(BaseModel):
@@ -84,25 +44,15 @@ class UpdateRequest(BaseModel):
     owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
     region: str = 'us-east-1'  # AWS region
     auto_execute: bool = False  # If True, automatically execute the change set
-    
-    class Config:
-        extra = 'allow'
-    
-    def get_canvas_data(self) -> dict:
-        """Get canvas data regardless of input format"""
-        if self.canvas is not None:
-            return self.canvas
-        
-        # Build from flat structure
-        canvas = {}
-        if self.nodes is not None:
-            canvas['nodes'] = self.nodes
-        if self.edges is not None:
-            canvas['edges'] = self.edges
-        if self.viewport is not None:
-            canvas['viewport'] = self.viewport
-        
-        return canvas
+
+
+class DeleteRequest(BaseModel):
+    stack_name: str  # CloudFormation stack name to delete
+    build_id: Optional[int] = None  # Optional build ID for database updates
+    owner_id: int = 1  # Default user ID (TODO: Replace with actual auth)
+    region: str = 'us-east-1'  # AWS region
+    cleanup_key_pairs: bool = True  # Whether to delete SSH key pairs
+    auto_execute: bool = False  # If True, automatically execute the change set
 
 
 @router.get('/health')
@@ -116,8 +66,8 @@ def deploy_initiate(request: DeployRequest):
     
     Args:
         request: DeployRequest containing:
-            - canvas: Frontend ReactFlow JSON (wrapped format)
-              OR nodes/edges/viewport directly (flat format)
+            - buildId: Build ID from /builds/new (REQUIRED)
+            - canvas: Frontend ReactFlow JSON
             - owner_id: User ID (default: 1)
             - region: AWS region (default: us-east-1)
         
@@ -127,43 +77,65 @@ def deploy_initiate(request: DeployRequest):
     print("=" * 80)
     print("DEPLOYMENT REQUEST RECEIVED")
     print("=" * 80)
+    print(f"Build ID: {request.buildId}")
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
+    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
     
-    canvas_data = request.get_canvas_data()
-    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
+    # Get build_id from request (created in /builds/new)
+    build_id = request.buildId
+    canvas_data = request.canvas
     
-    # Deploy to AWS using CFCreator
+    # Verify build exists in database
     try:
+        existing_build = get_build(build_id)
+        if not existing_build:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Build ID {build_id} not found. Please create a new build first with /builds/new"
+            )
+        print(f"✓ Build {build_id} found in database")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking build: {str(e)}"
+        )
+    
+    # Deploy to AWS using CFCreator with build_id
+    try:
+        print(f"\n[1/3] Deploying to AWS with build_id={build_id}...")
         result = CFCreator.deployToAWS(
             canvas_data=canvas_data,
-            stack_name=None,  # Auto-generate unique name with timestamp
-            region=request.region
+            stack_name=None,  # Auto-generate using build_id
+            region=request.region,
+            build_id=str(build_id)  # Pass database ID for resource naming
         )
         
         if result['success']:
             print("\n✓ Deployment successful!")
             
-            # Step 2: Save to database after successful deployment
+            # Step 2: Update database with canvas and CloudFormation template
             try:
-                print("\n[Database] Saving build to database...")
+                print(f"\n[2/3] Updating build {build_id} with canvas and CF template...")
                 
-                # Get the generated CloudFormation template from the result
-                # Note: We need to regenerate it here since deployToAWS doesn't return it
+                # Get the generated CloudFormation template
                 from CFCreators.CFCreator import createGeneration
-                cf_template = createGeneration(canvas_data)
+                cf_template = createGeneration(canvas_data, build_id=str(build_id), save_to_file=True)
                 template_json = json.loads(cf_template.to_json())
                 
-                # Save build to database (only owner_id, canvas, and cf_template)
-                build_id = save_build(
-                    owner_id=request.owner_id,
+                # Update build with canvas and CF template
+                update_build_canvas_and_template(
+                    build_id=build_id,
                     canvas=canvas_data,
                     cf_template=template_json
                 )
                 
-                print(f"✓ Build saved to database with ID: {build_id}")
+                print(f"✓ Build {build_id} updated successfully")
                 
                 # Log successful deployment activity
+                print(f"\n[3/3] Logging deployment activity...")
                 log_activity(
                     build_id=build_id,
                     user_id=request.owner_id,
@@ -172,11 +144,10 @@ def deploy_initiate(request: DeployRequest):
                 
                 print("✓ Activity logged")
                 
-            except Exception as db_error:
-                # Log database error but don't fail the deployment response
-                print(f"\n⚠ Warning: Database save failed: {str(db_error)}")
-                print("Deployment was successful, but build was not saved to database")
-                build_id = None
+            except Exception as update_error:
+                # Log update error but don't fail the deployment response
+                print(f"\n⚠ Warning: Database update failed: {str(update_error)}")
+                print("Deployment was successful, but canvas/template was not saved to database")
             
             return {
                 "success": True,
@@ -187,6 +158,7 @@ def deploy_initiate(request: DeployRequest):
                 "region": result['region'],
                 "status": result['status'],
                 "outputs": result.get('outputs', []),
+                "keyPairs": result.get('keyPairs', {}),  # SSH key pairs for EC2 instances
                 "buildId": build_id,  # camelCase for JavaScript convention
                 "build_id": build_id  # snake_case for Python convention (redundant but ensures compatibility)
             }
@@ -293,9 +265,7 @@ def deploy_update(request: UpdateRequest):
     print(f"Owner ID: {request.owner_id}")
     print(f"Region: {request.region}")
     print(f"Auto Execute: {request.auto_execute}")
-    
-    canvas_data = request.get_canvas_data()
-    print(f"Canvas nodes: {len(canvas_data.get('nodes', []))}")
+    print(f"Canvas nodes: {len(request.canvas.get('nodes', []))}")
     
     try:
         # Step 1: Get the old build from database
@@ -317,7 +287,7 @@ def deploy_update(request: UpdateRequest):
         # Step 2: Generate new CloudFormation template from new canvas
         print(f"\n[2/5] Generating new CloudFormation template...")
         from CFCreators.CFCreator import createGeneration
-        new_cf_template = createGeneration(canvas_data)
+        new_cf_template = createGeneration(request.canvas)
         new_template_json = new_cf_template.to_json()
         new_template_dict = json.loads(new_template_json)
         
@@ -333,7 +303,7 @@ def deploy_update(request: UpdateRequest):
         vpc_resources = deployer.get_default_vpc_resources()
         
         # Check if template has RDS and setup DB Subnet Group if needed
-        has_rds = any(node.get("type") == "RDS" for node in canvas_data.get("nodes", []))
+        has_rds = any(node.get("type") == "RDS" for node in request.canvas.get("nodes", []))
         if has_rds:
             db_subnet_group = deployer.get_or_create_db_subnet_group(vpc_resources['VpcId'])
             vpc_resources['DBSubnetGroupName'] = db_subnet_group
@@ -367,7 +337,7 @@ def deploy_update(request: UpdateRequest):
         print(f"\n[5/5] Updating database...")
         update_build_canvas_and_template(
             build_id=request.build_id,
-            canvas=canvas_data,
+            canvas=request.canvas,
             cf_template=new_template_dict
         )
         print(f"  ✓ Database updated")
@@ -526,49 +496,118 @@ def delete_changeset(
             detail=f"Failed to delete change set: {str(e)}"
         )
 
-#cicd router
+
+
+@builds.get('/new')
+def new_build(id: str):
+  
+    
+    try:
+        # Create new build with empty canvas and cf_template
+        build_id = save_build(
+            owner_id=int(id),
+            canvas=None,
+            cf_template=None
+        )
+        
+        
+        return {"build_id": build_id}
+        
+    except Exception as e:
+        print(f"✗ Failed to create build: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create build: {str(e)}"
+        )
+
+
+@builds.get('/')
+def get_builds(id: str):
+  
+    try:
+        builds = get_builds_by_owner(owner_id=int(id))
+
+
+        
+        
+        return {"builds": builds}
+        
+    except Exception as e:
+        print(f"✗ Failed to fetch builds: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch builds: {str(e)}"
+        )
+
 
 @router.get('/')
-async def get_repos(authorization: Optional[str] = Header(None)): 
-
-    if not authorization: 
+async def get_repos(authorization: Optional[str] = Header(None)):
+    if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header missing")
-    
-
-
     token = authorization.split(" ")[1]
-
-    async with httpx.AsyncClient() as client:  
+    async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.github.com/users/{token}/repos")
-        
-
         repos = response.json()
-
         # print(repos)
-
         simplified = [
         {
             "name": repo["name"],
             "html_url": repo["html_url"],
             "owner": repo["owner"]["login"],
             "ref": "main",
-
-
         }
         for repo in repos
     ]
         return simplified
+
+#websocket connections
+
+
+sockets: dict[str, WebSocket] = {} #global dictionary 
+
+@router.websocket("/ws/{build_id}")
+async def ws_build(websocket: WebSocket, build_id: str):
     
+    await websocket.accept()
+    sockets[build_id] = websocket
 
+  
 
+    try: 
+        while True:
+            data = await websocket.receive_text()
+           
+      
+           
+    except WebSocketDisconnect:
+        print(f"WebSocket disconnected for build_id {build_id}")
+        sockets.pop(build_id, None)
 
+   
+async def emit(build_id, message: str): #function to send message to specific websocket(reusable)
+    websocket = sockets.get(build_id)
+
+    # await websocket.send_text(message)
+
+    if websocket:
+        await websocket.send_text(message)
+   
+    else:
+        print(f"No active websocket for build_id: {build_id}")
+
+#uncomment the rest of this
 @router.post("/builds")
 async def cicd(Data: dict):
-    print('route reached')
+  
 
     url = Data.get("repo")
 
     tag = Data.get("tag")
+
+    print("socccer",sockets)
+
+
+
 
     print("tag",tag)
 
@@ -587,7 +626,7 @@ async def cicd(Data: dict):
 
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball/{ref}" 
 
-    print(zip_url)
+  
 
 
     out_file = f"{repo}-{ref}.zip"
@@ -620,17 +659,30 @@ async def cicd(Data: dict):
 
     
     upload_to_s3(out_file, S3_BUCKET_NAME, S3_KEY)
-    time.sleep(10)  #wait for a few seconds to ensure the file is available in s3
+   
 
-    status = trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}")
+    status = await trigger_codebuild("foundryCICD", S3_BUCKET_NAME, S3_KEY,path,f"{owner}-{repo}",emit,tag)
 
     print(status)
 
     if(status['build_status'] == 'SUCCEEDED'):
-        codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag)
-        print("hello world")
+        await codeDeploy(owner,repo,"foundry-artifacts-bucket",f"founryCICD-{owner}-{repo}",tag,emit)
+        ec2_details = boto3.client('ec2', region_name='us-east-1')
 
 
+        ec2_address = ec2_details.describe_instances(Filters=[{'Name': 'tag:BuildId', 'Values': [tag]}])
+        
+        print("response",ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress'])
+
+
+        return {"ec2_address": ec2_address['Reservations'][0]['Instances'][0]['PublicIpAddress']}   
+        
+        
+       
+    
+
+    
+    
 
 @router.get("/users")
 async def get_user_info():
@@ -648,10 +700,10 @@ async def get_user_info():
 
         user_info = []
         for row in rows:
-            user_info.append(row.get("email"))
+            user_info.append({"id": row["id"], "email": row["email"]})
 
-        
-        print("users:",user_info)
+    
+        # print("users:",user_info)
 
 
         await info.close()
@@ -667,68 +719,298 @@ async def get_user_info():
         return
 
 
+@router.post('/settings')
+async def settings(data: dict): 
+
+    print("data received:",data)
+
+    project = data.get("projectName")
+
+    id = data.get("build_id")
+
+    description = data.get("description")
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        result = await database.execute("UPDATE newbuilds SET project_name = $1, description = $2 WHERE build_id = $3", project, description,id)
+
+        print("result",result)
+
+
+
+    except Exception as e: 
+
+        print("failed to save",e)
+
+
+@router.post("/invite")
+async def send_invites(data: dict): 
+
+
     
 
-@builds.get('/new')
-async def new_build(id: str):
     
-    print("info received:",id)
+    invites = data.get('invite_id')
 
-    date = datetime.now()
+    build_id = data.get('build_id')
 
-    print("date,",date)    
+    owner_id = data.get('owner_id')
 
-    build_id = str(uuid.uuid4())
+    project_name = data.get('project_name')
+
+    description = data.get('description')
+
+    try: 
+ 
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        update_build = await database.execute("UPDATE build SET project_name = $1,description = $2 WHERE id = $3",project_name,description, int(build_id))
+
+
+        for invite in invites:
+            id = random.randint(100000,999999)
+            result = await database.execute("INSERT INTO invites (invite__id, build_id, owner_id, project_name, description,id) VALUES ($1, $2, $3, $4, $5,$6)",
+                                            int(invite), int(build_id), int(owner_id), project_name, description,id
+)
+
+
+    
+
+    except Exception as e: 
+        print("failed to send invites",e)
+
+
+@builds.get("/invitations")
+async def get_invite_info(id: str):
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        response = await database.fetch("SELECT * FROM invites WHERE invite__id = $1", int(id)) 
+        return [dict(row) for row in response] 
+
+        
+
+
+    
+    except Exception as e: 
+        print("error",e)
+    
+    
+    print("hello world")
+
+
+@builds.post("/invitations/decline")
+async def decline_invite(data: dict): 
+
+    id = data.get("id")
+
+    print(id)
+
+    try: 
+
+        database = await asyncpg.connect(os.getenv("DATABASE_URL"))
+
+
+        response = await database.execute("DELETE FROM invites WHERE id = $1", int(id)) 
+
+        print("response",response)
+
+
+
+    except Exception as e: 
+        print("error",e)
+
+
+@builds.post('/invitations/accept')
+async def accept_invite(data:dict):
+
+    
+
 
     try: 
         database = await asyncpg.connect(os.getenv("DATABASE_URL"))
 
-        await database.execute("INSERT INTO newbuilds (build_id, owner_id,created_at) VALUES ($1, $2, $3) " \
-        "ON CONFLICT DO NOTHING", build_id, id, date)
 
-    except Exception as e: 
+        update = await database.execute("UPDATE invites SET invite_status = $1 WHERE id = $2", True, int(data.get("id")))
 
-        print(f"Failed to connect to database: {e}")
-        return
+        print("update",update)
 
 
 
 
+    except Exception as e:
+
+        print("error",e)
 
 
+@router.post("/deployments")
+async def deployment(data:dict): 
 
 
-    return {"message":build_id}
+    print("data",data)
 
+    try:
 
-@builds.get('/')
-async def get_builds(id: str): 
-
-    print("build id received:",id)
-
-    try: 
         database = await asyncpg.connect(os.getenv("DATABASE_URL"))
 
-        rows = await database.fetch("SELECT * FROM newbuilds WHERE owner_id = $1", id)
+        update = await database.execute("UPDATE build SET status = $1 WHERE id = $2", True, int(data.get("build_id"))) 
 
-        
 
-        build_info = [dict(row) for row in rows]
+    
+    except Exception as e:
+        print("error",e)
 
-        print("builds info:",build_info)
 
-        await database.close()
+@router.get("/settings")
+async def get_settings(build_id: str):
 
-        return build_info
-        
+    try: 
 
+        database = os.getenv("DATABASE_URL")
+
+
+        connect = await asyncpg.connect(database)
+
+        response = await connect.fetch("SELECT * FROM build WHERE id = $1", int(build_id))
+
+        print("response",response)
+
+
+        return [dict(row) for row in response]
+
+
+
+    
     except Exception as e: 
+        print("error",e)
 
-        print(f"Failed to connect to database: {e}")
-        return {"message":"Failed to connect to database."}
 
+@router.websocket("/deploy/track/{stack_name}")
+async def track_deployment(websocket: WebSocket, stack_name: str, region: str = 'us-east-1'):
+    """
+    WebSocket endpoint for real-time CloudFormation deployment tracking.
     
+    Streams live updates as AWS resources are created/updated/deleted.
     
-   
+    Args:
+        websocket: WebSocket connection
+        stack_name: CloudFormation stack name to track
+        region: AWS region (default: us-east-1)
+        
+    WebSocket Message Format:
+        {
+            "type": "resource_update" | "stack_complete" | "error" | "initial_state",
+            "timestamp": "2025-11-13T10:30:45Z",
+            "resource": {
+                "logicalId": "MyEC2Instance",
+                "type": "AWS::EC2::Instance",
+                "status": "CREATE_IN_PROGRESS",
+                "statusReason": "",
+                "physicalId": "i-1234567890abcdef",
+                "progress": 66
+            },
+            "stack": {
+                "name": "build-12345678",
+                "status": "CREATE_IN_PROGRESS",
+                "totalResources": 5,
+                "completedResources": 3,
+                "inProgressResources": 1,
+                "failedResources": 0,
+                "progress": 60
+            }
+        }
+    """
+    await deployment_ws_manager.connect(websocket, stack_name, region)
+    
+    try:
+        # Keep connection alive and handle any incoming messages
+        while True:
+            # Wait for messages from client (e.g., ping to keep alive)
+            try:
+                data = await websocket.receive_text()
+                # Echo back to acknowledge (optional)
+                # Can handle client commands here if needed
+            except WebSocketDisconnect:
+                break
+            
+    except Exception as e:
+        print(f"WebSocket error for {stack_name}: {e}")
+    finally:
+        deployment_ws_manager.disconnect(websocket, stack_name)
 
 
+@router.post('/deploy/delete')
+def delete_stack(request: DeleteRequest):
+    """
+    Delete a CloudFormation stack and clean up associated resources (including SSH key pairs).
+    
+    Args:
+        request: DeleteRequest containing:
+            - stack_name: CloudFormation stack name to delete (REQUIRED)
+            - build_id: Optional build ID for database updates
+            - owner_id: User ID (default: 1)
+            - region: AWS region (default: us-east-1)
+            - cleanup_key_pairs: Whether to delete SSH key pairs (default: True)
+        
+    Returns:
+        Deletion result with number of key pairs deleted
+    """
+    print("=" * 80)
+    print("DELETE STACK REQUEST RECEIVED")
+    print("=" * 80)
+    print(f"Stack Name: {request.stack_name}")
+    print(f"Build ID: {request.build_id}")
+    print(f"Region: {request.region}")
+    print(f"Cleanup Key Pairs: {request.cleanup_key_pairs}")
+    
+    try:
+        # Delete stack and key pairs
+        result = CFCreator.deleteStack(
+            stack_name=request.stack_name,
+            region=request.region,
+            cleanup_key_pairs=request.cleanup_key_pairs
+        )
+        
+        if result['success']:
+            print(f"\n✓ Stack deletion initiated!")
+            
+            # Update database activity log if build_id provided
+            if request.build_id:
+                try:
+                    print(f"\nLogging deletion activity...")
+                    log_activity(
+                        build_id=request.build_id,
+                        user_id=request.owner_id,
+                        change=f"Deleted stack: {request.stack_name} in {request.region}. Key pairs deleted: {result.get('keyPairsDeleted', 0)}"
+                    )
+                    print("✓ Activity logged")
+                except Exception as log_error:
+                    print(f"⚠ Warning: Failed to log activity: {str(log_error)}")
+            
+            return {
+                "success": True,
+                "message": result['message'],
+                "stackName": result['stackName'],
+                "keyPairsDeleted": result.get('keyPairsDeleted', 0),
+                "region": request.region
+            }
+        else:
+            print(f"\n✗ Deletion failed: {result.get('message')}")
+            raise HTTPException(
+                status_code=500,
+                detail=result.get('message', 'Stack deletion failed')
+            )
+            
+    except Exception as e:
+        print(f"\n✗ Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Deletion error: {str(e)}"
+        )

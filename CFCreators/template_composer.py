@@ -6,7 +6,7 @@ from .singleServiceCreator import (
     create_ec2_s3_role, create_ec2_dynamodb_role, create_ec2_multi_service_role
 )
 
-def make_stack_template(normalized: dict) -> Template:
+def make_stack_template(normalized: dict, build_id: str = None, key_pairs: dict = None) -> Template:
     t = Template()
     t.set_version("2010-09-09")  # AWSTemplateFormatVersion
     t.set_description("Foundry v1 - Single stack for EC2/S3/RDS/DynamoDB")
@@ -50,13 +50,17 @@ def make_stack_template(normalized: dict) -> Template:
             Description="DB Subnet Group for RDS instances (must span at least 2 AZs)"
         ))
     
-    # Build ID for resource naming (can be passed from frontend or auto-generated)
-    # Generate unique build_id with timestamp to avoid resource name collisions
-    if "buildId" not in normalized or not normalized["buildId"]:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        build_id = f"foundry-build-{timestamp}"
-    else:
-        build_id = normalized["buildId"]
+    # Build ID for resource naming - use parameter if provided, otherwise generate timestamp
+    if not build_id:
+        # Check if buildId is in the normalized data
+        if "buildId" in normalized and normalized["buildId"]:
+            build_id = str(normalized["buildId"])
+        else:
+            # Fallback to timestamp
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            build_id = f"foundry-build-{timestamp}"
+    
+    print(f"Using build_id for resource naming: {build_id}")
     
     # ========== PHASE 1: Parse edges and build dependency map ==========
     edges = normalized.get("edges", [])
@@ -205,11 +209,20 @@ def make_stack_template(normalized: dict) -> Template:
                     environment_variables[f"{prefix}ENGINE"] = rds_ref["engine"]
         
         # Create EC2 instance with IAM profile and environment variables
+        # Get key pair name for this instance if available
+        instance_key_name = None
+        if key_pairs:
+            instance_name = node.get('data', {}).get('name', '')
+            if instance_name in key_pairs:
+                instance_key_name = key_pairs[instance_name].get('keyName')
+        
         EC2_creation.add_ec2_instance(
             t, node, subnet_param, sg_param,
             logical_id=logical_id,
             instance_profile=instance_profile,
-            environment_variables=environment_variables if environment_variables else None
+            environment_variables=environment_variables if environment_variables else None,
+            build_id=build_id,
+            key_name=instance_key_name
         )
 
     return t

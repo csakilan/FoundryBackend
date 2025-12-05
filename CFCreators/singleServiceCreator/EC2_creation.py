@@ -86,6 +86,7 @@ def add_ec2_instance(
     instance_profile: Optional[Any] = None,
     environment_variables: Optional[Dict[str, str]] = None,
     build_id: str = "default",
+    key_name: Optional[str] = None,
 ) -> ec2.Instance:
     
 
@@ -107,6 +108,7 @@ def add_ec2_instance(
         instance_profile: Optional IAM instance profile for permissions
         environment_variables: Optional dict of env vars to inject into UserData
         build_id: Build ID to prefix the instance name and logical ID
+        key_name: SSH key pair name for EC2 access (auto-generated or from user)
     
     Returns:
         The created EC2 Instance resource
@@ -183,14 +185,19 @@ def add_ec2_instance(
             BuildId=build_id,
         ),
     )
-    # Enforce IMDSv2 (require tokens)
-    props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
+    
+    # Note: MetadataOptions is not supported in Troposphere 4.9.4
+    # Uncomment below when upgrading to Troposphere 4.0+ (requires newer version):
+    # props["MetadataOptions"] = ec2.MetadataOptions(HttpTokens="required", HttpEndpoint="enabled")
 
-    props['IamInstanceProfile'] =  "ec2CodeDeploy"
-    # Add IAM instance profile if provided
+    # Add IAM instance profile if provided (for S3, DynamoDB access)
+    if instance_profile:
+        props['IamInstanceProfile'] = Ref(instance_profile)
     
-    
-    if data.get("keyName"):
+    # Add SSH key pair if provided (either from parameter or auto-generated)
+    if key_name:
+        props["KeyName"] = key_name
+    elif data.get("keyName"):
         props["KeyName"] = data["keyName"]
     
     props["UserData"] = Base64(Sub("""#!/bin/bash

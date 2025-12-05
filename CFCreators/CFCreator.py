@@ -1,22 +1,25 @@
 from . import template_composer
 from .aws_deployer import CloudFormationDeployer, AWSDeploymentError
+from .key_pair_manager import create_key_pairs_for_deployment, cleanup_key_pairs_for_stack
 from datetime import datetime
 from pathlib import Path
 import json
 
 
-def createGeneration(data: dict, save_to_file: bool = True):
+def createGeneration(data: dict, save_to_file: bool = True, build_id: str = None, key_pairs: dict = None):
     """
     Takes frontend ReactFlow JSON and generates a CloudFormation template.
     
     Args:
         data: Frontend ReactFlow JSON containing nodes and edges
         save_to_file: Whether to save the template to createdCFs folder (default: True)
+        build_id: Database build ID for file naming (used instead of timestamp)
+        key_pairs: Optional dict of key pair information for EC2 instances
         
     Returns:
         CloudFormation Template object
     """
-    CFTemplate = template_composer.make_stack_template(data)
+    CFTemplate = template_composer.make_stack_template(data, build_id=build_id, key_pairs=key_pairs)
     
     # Print the CloudFormation template in JSON format
     print("CLOUDFORMATION TEMPLATE (JSON):")
@@ -26,8 +29,13 @@ def createGeneration(data: dict, save_to_file: bool = True):
     
     # Save to allJSONs/createdCFs folder
     if save_to_file:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = Path(__file__).parent / "allJSONs" / "createdCFs" / f"CF_{timestamp}.json"
+        if build_id:
+            filename = f"CF_{build_id}.json"
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"CF_{timestamp}.json"
+        
+        output_path = Path(__file__).parent / "allJSONs" / "createdCFs" / filename
         
         # Ensure createdCFs directory exists
         output_path.parent.mkdir(exist_ok=True)
@@ -47,7 +55,7 @@ def createGeneration(data: dict, save_to_file: bool = True):
 
 
 
-def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-east-1'):
+def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-east-1', build_id: str = None):
     """
     Complete deployment pipeline: Generate CloudFormation template and deploy to AWS.
     
@@ -55,6 +63,7 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
         canvas_data: Frontend ReactFlow JSON containing nodes and edges
         stack_name: Name for the CloudFormation stack (auto-generated if not provided)
         region: AWS region to deploy to (default: us-east-1)
+        build_id: Database build ID for resource naming (used instead of timestamp)
         
     Returns:
         Dictionary with deployment details:
@@ -74,22 +83,33 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
     print("=" * 80)
     
     try:
-        # Step 1: Generate CloudFormation template
-        print("\n[1/4] Generating CloudFormation template...")
-        cf_template = createGeneration(canvas_data)
+        # Step 1: Create SSH key pairs for EC2 instances
+        print("\n[1/5] Creating SSH key pairs for EC2 instances...")
+        key_pairs = create_key_pairs_for_deployment(canvas_data, build_id or "default", region)
+        
+        if key_pairs:
+            print(f"✓ Created {len(key_pairs)} key pair(s):")
+            for instance_name, key_info in key_pairs.items():
+                print(f"  - {instance_name}: {key_info['keyName']}")
+        else:
+            print("✓ No EC2 instances found, skipping key pair creation")
+        
+        # Step 2: Generate CloudFormation template
+        print("\n[2/5] Generating CloudFormation template...")
+        cf_template = createGeneration(canvas_data, build_id=build_id, key_pairs=key_pairs)
         template_json = cf_template.to_json()
         
         template_dict = json.loads(template_json)
         print(f"✓ Template generated")
         print(f"  - Resources: {list(template_dict.get('Resources', {}).keys())}")
         
-        # Step 2: Initialize AWS deployer
-        print(f"\n[2/4] Initializing AWS deployer (region: {region})...")
+        # Step 3: Initialize AWS deployer
+        print(f"\n[3/5] Initializing AWS deployer (region: {region})...")
         deployer = CloudFormationDeployer(region=region)
         print("✓ AWS deployer initialized")
         
-        # Step 3: Auto-discover VPC resources
-        print("\n[3/4] Auto-discovering VPC resources...")
+        # Step 4: Auto-discover VPC resources
+        print("\n[4/5] Auto-discovering VPC resources...")
         vpc_resources = deployer.get_default_vpc_resources()
         print("✓ VPC resources discovered:")
         print(f"  - VPC: {vpc_resources['VpcId']}")
@@ -103,12 +123,15 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
             db_subnet_group = deployer.get_or_create_db_subnet_group(vpc_resources['VpcId'])
             vpc_resources['DBSubnetGroupName'] = db_subnet_group
         
-        # Step 4: Deploy to AWS
+        # Step 5: Deploy to AWS
         if not stack_name:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            stack_name = f"foundry-stack-{timestamp}"
+            if build_id:
+                stack_name = f"foundry-stack-{build_id}"
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                stack_name = f"foundry-stack-{timestamp}"
         
-        print(f"\n[4/4] Deploying stack '{stack_name}' to AWS...")
+        print(f"\n[5/5] Deploying stack '{stack_name}' to AWS...")
         stack_id = deployer.deploy_stack(
             template_body=template_json,
             stack_name=stack_name,
@@ -126,6 +149,11 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
         print(f"Stack Name: {stack_name}")
         print(f"Status: {status_info['status']}")
         
+        if key_pairs:
+            print(f"\nSSH Key Pairs Created: {len(key_pairs)}")
+            for instance_name in key_pairs:
+                print(f"  - {instance_name}")
+        
         return {
             'success': True,
             'stackId': stack_id,
@@ -133,6 +161,8 @@ def deployToAWS(canvas_data: dict, stack_name: str = None, region: str = 'us-eas
             'region': region,
             'status': status_info['status'],
             'outputs': status_info.get('outputs', []),
+            'keyPairs': key_pairs,  # Include key pair information with private keys
+            'keyPairNames': [key_info['keyName'] for key_info in key_pairs.values()],  # Just the names for storage
             'message': 'Deployment initiated successfully'
         }
         
@@ -203,3 +233,66 @@ def getStackStatus(stack_name: str, region: str = 'us-east-1'):
             'error': str(e)
         }
 
+
+def deleteStack(stack_name: str, region: str = 'us-east-1', cleanup_key_pairs: bool = True):
+    """
+    Delete a CloudFormation stack and optionally clean up associated key pairs.
+    
+    Args:
+        stack_name: Name of the CloudFormation stack to delete
+        region: AWS region (default: us-east-1)
+        cleanup_key_pairs: Whether to delete SSH key pairs (default: True)
+        
+    Returns:
+        Dictionary with deletion result:
+        {
+            'success': bool,
+            'stackName': str,
+            'message': str,
+            'keyPairsDeleted': int (if cleanup_key_pairs=True)
+        }
+    """
+    try:
+        print("=" * 80)
+        print("DELETING CLOUDFORMATION STACK")
+        print("=" * 80)
+        print(f"Stack Name: {stack_name}")
+        print(f"Region: {region}")
+        print(f"Cleanup Key Pairs: {cleanup_key_pairs}")
+        
+        # Step 1: Delete CloudFormation stack
+        print(f"\n[1/2] Deleting CloudFormation stack '{stack_name}'...")
+        deployer = CloudFormationDeployer(region=region)
+        deployer.cf_client.delete_stack(StackName=stack_name)
+        print(f"✓ Stack deletion initiated")
+        
+        # Step 2: Delete associated key pairs
+        key_pairs_deleted = 0
+        if cleanup_key_pairs:
+            print(f"\n[2/2] Cleaning up SSH key pairs...")
+            from .key_pair_manager import cleanup_key_pairs_for_stack
+            key_pairs_deleted = cleanup_key_pairs_for_stack(stack_name, region)
+            print(f"✓ Deleted {key_pairs_deleted} key pair(s)")
+        else:
+            print(f"\n[2/2] Skipping key pair cleanup (as requested)")
+        
+        print("\n" + "=" * 80)
+        print("✓ STACK DELETION INITIATED")
+        print("=" * 80)
+        
+        return {
+            'success': True,
+            'stackName': stack_name,
+            'message': f'Stack deletion initiated. {key_pairs_deleted} key pairs deleted.',
+            'keyPairsDeleted': key_pairs_deleted
+        }
+        
+    except Exception as e:
+        error_msg = f"Error deleting stack: {str(e)}"
+        print(f"\n✗ {error_msg}")
+        return {
+            'success': False,
+            'stackName': stack_name,
+            'message': error_msg,
+            'error': str(e)
+        }

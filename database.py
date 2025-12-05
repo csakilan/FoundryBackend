@@ -4,7 +4,9 @@ Database connection and operations for RDS PostgreSQL.
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from typing import Dict, Any, Optional
+from fastapi import HTTPException
 import os
+import random
 from contextlib import contextmanager
 from dotenv import load_dotenv
 
@@ -65,13 +67,22 @@ def test_connection():
         return False
 
 
-# ============================================================================
-# BUILD OPERATIONS (for canvas and CF template storage)
-# ============================================================================
+
+def generate_8_digit_id() -> int:
+    """
+    Generate a random 8-digit integer ID.
+    Range: 10000000 to 99999999
+    
+    Returns:
+        8-digit integer
+    """
+    return random.randint(10000000, 99999999)
+
 
 def save_build(owner_id: int, canvas: Dict[str, Any], cf_template: Optional[Dict[str, Any]] = None) -> int:
     """
     Save a new build with canvas and optional CloudFormation template.
+    Generates an 8-digit unique ID for the build.
     
     Args:
         owner_id: User ID of the build owner
@@ -79,21 +90,38 @@ def save_build(owner_id: int, canvas: Dict[str, Any], cf_template: Optional[Dict
         cf_template: Generated CloudFormation template JSON
         
     Returns:
-        build_id: ID of the created build
+        build_id: 8-digit ID of the created build
     """
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO build (owner_id, canvas, cf_template)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            (owner_id, Json(canvas), Json(cf_template) if cf_template else None)
-        )
-        build_id = cursor.fetchone()[0]
-        print(f"✓ Build saved with ID: {build_id}")
-        return build_id
+        
+        # Try up to 10 times to insert with a unique ID
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            build_id = generate_8_digit_id()
+            
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO build (id, owner_id, canvas, cf_template)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (build_id, owner_id, Json(canvas), Json(cf_template) if cf_template else None)
+                )
+                # If successful, retrieve the ID and return
+                build_id = cursor.fetchone()[0]
+                print(f"✓ Build saved with ID: {build_id}")
+                return build_id
+                
+            except psycopg2.errors.UniqueViolation:
+                # ID collision - rollback and try again with a new ID
+                conn.rollback()
+                if attempt == max_attempts - 1:
+                    raise Exception(f"Failed to generate unique build ID after {max_attempts} attempts")
+                continue
+        
+        raise Exception("Failed to save build: exceeded maximum retry attempts")
 
 
 def get_build(build_id: int) -> Optional[Dict[str, Any]]:
@@ -146,28 +174,20 @@ def update_build_canvas_and_template(build_id: int, canvas: Dict[str, Any], cf_t
         )
         rows_affected = cursor.rowcount
         if rows_affected > 0:
-            print(f"✓ Build {build_id} updated successfully")
+            print(f"Build {build_id} updated successfully")
             return True
         else:
-            print(f"✗ Build {build_id} not found")
+            print(f"Build {build_id} not found")
             return False
 
 
 def get_builds_by_owner(owner_id: int) -> list:
-    """
-    Get all builds owned by a user.
-    
-    Args:
-        owner_id: User ID
-        
-    Returns:
-        List of build records
-    """
+  
     with get_db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
-            SELECT id, owner_id, canvas, cf_template, created_at
+            SELECT id, owner_id, canvas, cf_template, created_at,project_name,description,status
             FROM build
             WHERE owner_id = %s
             ORDER BY created_at DESC
@@ -202,19 +222,9 @@ def is_build_deployed(build_id: int) -> bool:
         return result[0] if result else False
 
 
-# ============================================================================
-# ACTIVITY LOG
-# ============================================================================
 
 def log_activity(build_id: int, user_id: int, change: str):
-    """
-    Log activity for a build.
-    
-    Args:
-        build_id: ID of the build
-        user_id: ID of the user making the change
-        change: Description of the change
-    """
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -225,6 +235,30 @@ def log_activity(build_id: int, user_id: int, change: str):
             (build_id, user_id, change)
         )
         print(f"✓ Activity logged for build {build_id}")
+def get_access_token_for_owner(owner_username: str) -> str:
+   """
+   Retrieves the GitHub access token from the dedicated encrypted column.
+   """
+   token = None
+   with get_db_connection() as conn:
+       cursor = conn.cursor()
+       # Select ONLY the access token
+       cursor.execute(
+           """
+           SELECT github_access_token
+           FROM account
+           WHERE github_login = %s
+           """,
+           (owner_username,)
+       )
+       result = cursor.fetchone()
+       if result:
+           # Result is (token_string,), so we take the first element
+           token = result[0]
+      
+   if not token:
+       raise HTTPException(status_code=404, detail=f"Token not found for user '{owner_username}'.")
+   return token
 
 
 if __name__ == "__main__":

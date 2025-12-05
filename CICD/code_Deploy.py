@@ -1,10 +1,13 @@
 import boto3
+import asyncio
 
-def codeDeploy(owner, repo, bucket_name, object_key,tag):
+async def codeDeploy(owner, repo, bucket_name, object_key,tag,emit_func):
     """
     Deploys the latest build to EC2 using CodeDeploy.
     Automatically creates the application if it doesn't exist.
     """
+
+    print("tag",tag)
 
     code_deploy = boto3.client("codedeploy", region_name="us-east-1")
     application_name = f"{owner}-{repo}"
@@ -29,14 +32,14 @@ def codeDeploy(owner, repo, bucket_name, object_key,tag):
                 applicationName=application_name,
                 deploymentGroupName=deployment_group_name,
                 serviceRoleArn=service_role_arn,
-                ec2TagFilters=[{'Key': 'OriginalName', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
+                ec2TagFilters=[{'Key': 'BuildId', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
             )
             print(f"Created deployment group '{deployment_group_name}'.")
         except code_deploy.exceptions.DeploymentGroupAlreadyExistsException:
             code_deploy.update_deployment_group(
                 applicationName=application_name,
                 currentDeploymentGroupName=deployment_group_name,
-                ec2TagFilters=[{'Key': 'OriginalName', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
+                ec2TagFilters=[{'Key': 'BuildId', 'Value': tag, 'Type': 'KEY_AND_VALUE'}]
             )
             print(f"Updated deployment group '{deployment_group_name}'.")
 
@@ -57,7 +60,38 @@ def codeDeploy(owner, repo, bucket_name, object_key,tag):
             fileExistsBehavior='OVERWRITE'
         )
 
-        print("Deployment started:", response['deploymentId'])
+        print("Deployment started:", type(response['deploymentId']))
+
+        deployment_identity= response['deploymentId']
+
+        print("deployment id",deployment_identity)
+
+        
+         
+
+
+        while True:
+
+            deploy_response = code_deploy.get_deployment(deploymentId=deployment_identity) 
+
+            deployment_info = deploy_response['deploymentInfo']
+
+            
+
+
+            status =  deployment_info['status']
+            
+            print("status",status)
+
+            await emit_func(tag,status)
+
+            if status in ["Succeeded", "Failed", "Stopped", "TimedOut"]:
+                break
+
+            await asyncio.sleep(2)
+
+            
+
 
     except Exception as e:
         print(f"Failed to trigger CodeDeploy: {e}")
